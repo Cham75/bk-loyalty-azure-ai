@@ -47,7 +47,7 @@ app.http("redeem-reward", {
         };
       }
 
-      context.log.error(err);
+      context.log(err);
       return {
         status: 500,
         jsonBody: { error: "INTERNAL_ERROR" },
