@@ -1,21 +1,22 @@
+// api/src/data/cosmos-client.js
+
+// 🔧 Cosmos / SWA crypto polyfill
+const nodeCrypto = require("crypto");
+global.crypto = global.crypto || nodeCrypto;
+const crypto = nodeCrypto; // keep reference so bundler doesn't strip it
+
 const { CosmosClient } = require("@azure/cosmos");
 
-const connectionString = process.env.COSMOS_DB_CONNECTION_STRING;
-
-let client = null;
-
 function isCosmosConfigured() {
-  return !!connectionString;
+  return !!process.env.COSMOS_DB_CONNECTION_STRING;
 }
 
 function getClient() {
-  if (!connectionString) {
+  const connStr = process.env.COSMOS_DB_CONNECTION_STRING;
+  if (!connStr) {
     throw new Error("COSMOS_DB_CONNECTION_STRING is not set");
   }
-  if (!client) {
-    client = new CosmosClient(connectionString);
-  }
-  return client;
+  return new CosmosClient(connStr);
 }
 
 function getDatabase() {

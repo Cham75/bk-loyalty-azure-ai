@@ -1,10 +1,7 @@
-// db.js: data abstraction over either Cosmos DB or the in-memory fake-db.
+// api/src/data/db.js
 
-const fake = require("./fake-db");
-const User = require("../models/user");
-const Receipt = require("../models/receipt");
-const Reward = require("../models/reward");
 const { randomUUID } = require("crypto");
+const fake = require("./fake-db");
 const {
   isCosmosConfigured,
   getUsersContainer,
@@ -29,12 +26,14 @@ async function getUser(userId) {
     };
   } catch (err) {
     if (err.code === 404) {
-      const user = new User({
+      const userDoc = {
         id: userId,
+        userId,
         email: null,
         points: 0,
-      });
-      const { resource } = await container.items.create(user);
+        createdAt: new Date().toISOString(),
+      };
+      const { resource } = await container.items.create(userDoc);
       return {
         userId: resource.userId,
         points: resource.points || 0,
@@ -57,6 +56,7 @@ async function addPoints(userId, delta) {
     id: userId,
     userId,
     points: newPoints,
+    updatedAt: new Date().toISOString(),
   };
 
   const { resource } = await container.item(userId, userId).replace(updatedDoc);
@@ -80,15 +80,16 @@ async function createReceipt(userId, blobUrl, amount, pointsEarned) {
   }
 
   const container = getReceiptsContainer();
-  const receipt = new Receipt({
+  const receiptDoc = {
     id: randomUUID(),
     userId,
     blobUrl,
     amount,
     pointsEarned,
-  });
+    createdAt: new Date().toISOString(),
+  };
 
-  const { resource } = await container.items.create(receipt);
+  const { resource } = await container.items.create(receiptDoc);
   return resource;
 }
 
@@ -107,20 +108,21 @@ async function createReward(userId, name, pointsCost) {
     throw err;
   }
 
-  // 2) Debit user points (reuse addPoints with negative delta)
+  // 2) Debit user points
   const updatedUser = await addPoints(userId, -pointsCost);
 
   // 3) Create reward document
   const container = getRewardsContainer();
-  const reward = new Reward({
+  const rewardDoc = {
     id: randomUUID(),
     userId,
     name,
     pointsCost,
     redeemed: false,
-  });
+    createdAt: new Date().toISOString(),
+  };
 
-  const { resource } = await container.items.create(reward);
+  const { resource } = await container.items.create(rewardDoc);
 
   return {
     reward: resource,
@@ -135,7 +137,6 @@ async function redeemReward(rewardId) {
 
   const container = getRewardsContainer();
 
-  // Search by id (cross-partition query since partition key is /userId)
   const querySpec = {
     query: "SELECT * FROM c WHERE c.id = @id",
     parameters: [{ name: "@id", value: rewardId }],

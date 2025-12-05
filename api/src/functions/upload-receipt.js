@@ -41,7 +41,7 @@ app.http("upload-receipt", {
       try {
         amount = await extractTotalAmountFromReceipt(buffer);
       } catch (docErr) {
-        context.log.error("Document Intelligence error:", docErr);
+        context.log("Document Intelligence error:", docErr);
       }
 
       if (!amount || isNaN(amount)) {
@@ -82,7 +82,7 @@ app.http("upload-receipt", {
         },
       };
     } catch (err) {
-      context.log.error("upload-receipt error", err);
+      context.log("upload-receipt error", err);
       return {
         status: 500,
         jsonBody: { error: "INTERNAL_ERROR" },
