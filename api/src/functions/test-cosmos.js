@@ -5,9 +5,8 @@ app.http("test-cosmos", {
   authLevel: "anonymous",
   handler: async (request, context) => {
     try {
-      // Load Cosmos only inside the handler so any error is catchable
-      const cosmos = require("@azure/cosmos");
-      const { CosmosClient } = cosmos;
+      // Load Cosmos only inside the handler so we can catch errors
+      const { CosmosClient } = require("@azure/cosmos");
 
       const connStr = process.env.COSMOS_DB_CONNECTION_STRING;
       const dbName = process.env.COSMOS_DB_NAME || "bkloyalty";
@@ -28,7 +27,6 @@ app.http("test-cosmos", {
       const db = client.database(dbName);
       const container = db.container(usersContainerName);
 
-      // Small query just to test
       const { resources } = await container.items
         .query("SELECT TOP 5 * FROM c")
         .fetchAll();
@@ -42,7 +40,8 @@ app.http("test-cosmos", {
         },
       };
     } catch (err) {
-      context.log.error("test-cosmos error:", err);
+      // ⬇️ IMPORTANT: use context.log, not context.log.error
+      context.log("test-cosmos error:", err);
 
       return {
         status: 500,
