@@ -65,7 +65,7 @@ function App() {
       setApiMessage(null);
 
       const res = await fetch(
-        "/health-check?name=Customer"
+        "/api/health-check?name=Customer"
       );
       if (!res.ok) {
         throw new Error(`Health-check failed with status ${res.status}`);
