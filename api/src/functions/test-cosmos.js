@@ -1,11 +1,17 @@
 const { app } = require("@azure/functions");
 
+// 🔧 Ensure 'crypto' exists for the Cosmos SDK / worker bundle
+// (SWA worker bundle sometimes expects a global 'crypto' variable)
+const nodeCrypto = require("crypto");
+global.crypto = global.crypto || nodeCrypto; // define global.crypto
+// also keep a local variable so bundler definitely keeps it:
+const crypto = nodeCrypto;
+
 app.http("test-cosmos", {
   methods: ["GET"],
   authLevel: "anonymous",
   handler: async (request, context) => {
     try {
-      // Load Cosmos only inside the handler so we can catch errors
       const { CosmosClient } = require("@azure/cosmos");
 
       const connStr = process.env.COSMOS_DB_CONNECTION_STRING;
@@ -40,7 +46,6 @@ app.http("test-cosmos", {
         },
       };
     } catch (err) {
-      // ⬇️ IMPORTANT: use context.log, not context.log.error
       context.log("test-cosmos error:", err);
 
       return {
