@@ -266,7 +266,7 @@ function App() {
               </span>
             )}
             <a
-              href={userEmail ? "/.auth/logout" : "/.auth/login/ciam"}
+              href={userEmail ? "/.auth/logout" : "/.auth/login/github"}
               style={{
                 padding: "0.35rem 0.8rem",
                 borderRadius: "999px",

@@ -1,22 +1,10 @@
 {
   "auth": {
     "identityProviders": {
-      "customOpenIdConnectProviders": {
-        "ciam": {
-          "registration": {
-            "clientIdSettingName": "CIAM_CLIENT_ID",
-            "clientCredential": {
-              "clientSecretSettingName": "CIAM_CLIENT_SECRET"
-            },
-            "openIdConnectConfiguration": {
-              "wellKnownOpenIdConfiguration": "https://bkloyaltycustomers.ciamlogin.com/<TENANT_ID>/v2.0/.well-known/openid-configuration"
-            }
-          },
-          "login": {
-            "nameClaimType": "name",
-            "scopes": ["openid", "profile", "email"],
-            "loginParameterNames": []
-          }
+      "github": {
+        "registration": {
+          "clientIdSettingName": "GITHUB_CLIENT_ID",
+          "clientSecretSettingName": "GITHUB_CLIENT_SECRET_APP_SETTING_NAME"
         }
       }
     }
