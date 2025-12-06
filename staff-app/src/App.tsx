@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface ValidateResponse {
   valid: boolean;
@@ -8,9 +8,34 @@ interface ValidateResponse {
 }
 
 function App() {
+  // Auth
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  // Validation state
   const [rewardCode, setRewardCode] = useState("");
   const [result, setResult] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState(false);
+
+  // ------- AUTH: load current user from /.auth/me -------
+  const loadUser = async () => {
+    try {
+      const res = await fetch("/.auth/me");
+      if (!res.ok) {
+        setUserEmail(null);
+        return;
+      }
+      const payload = await res.json();
+      const principal = (payload as any)?.clientPrincipal;
+      setUserEmail(principal?.userDetails ?? null);
+    } catch (error) {
+      console.error(error);
+      setUserEmail(null);
+    }
+  };
+
+  useEffect(() => {
+    loadUser();
+  }, []);
 
   const validateReward = async () => {
     const trimmed = rewardCode.trim();
@@ -63,13 +88,54 @@ function App() {
           padding: "2rem 1.5rem 3rem",
         }}
       >
-        <h1 style={{ fontSize: "2rem", marginBottom: "0.75rem" }}>
-          BK Loyalty – Staff
-        </h1>
-        <p style={{ marginBottom: "1.5rem", color: "#9ca3af" }}>
-          Type or scan the reward code from the customer&apos;s QR and validate
-          it. The reward will be marked as used in the backend.
-        </p>
+        {/* HEADER WITH SIGN-IN / SIGN-OUT */}
+        <header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "1.5rem",
+          }}
+        >
+          <div>
+            <h1 style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>
+              BK Loyalty – Staff
+            </h1>
+            <p style={{ color: "#9ca3af" }}>
+              Type or scan the reward code from the customer&apos;s QR and
+              validate it. The reward will be marked as used in the backend.
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-end",
+              gap: "0.25rem",
+            }}
+          >
+            {userEmail && (
+              <span style={{ fontSize: "0.9rem", color: "#e5e7eb" }}>
+                Signed in as <strong>{userEmail}</strong>
+              </span>
+            )}
+            <a
+              href={userEmail ? "/.auth/logout" : "/.auth/login/ciam"}
+              style={{
+                padding: "0.35rem 0.8rem",
+                borderRadius: "999px",
+                border: "1px solid #4b5563",
+                textDecoration: "none",
+                fontSize: "0.85rem",
+                background: "#020617",
+                color: "#e5e7eb",
+              }}
+            >
+              {userEmail ? "Sign out" : "Sign in"}
+            </a>
+          </div>
+        </header>
 
         <section
           style={{

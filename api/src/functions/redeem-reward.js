@@ -1,11 +1,19 @@
 const { app } = require("@azure/functions");
 const { createReward } = require("../data/db");
+const { getUserId } = require("../auth/client-principal");
 
 app.http("redeem-reward", {
   methods: ["POST"],
   authLevel: "anonymous",
   handler: async (request, context) => {
-    const userId = "demo-user-1"; // later: from B2C token
+    const userId = getUserId(request);
+
+    if (!userId) {
+      return {
+        status: 401,
+        jsonBody: { error: "UNAUTHENTICATED" },
+      };
+    }
 
     let body;
     try {
@@ -47,7 +55,7 @@ app.http("redeem-reward", {
         };
       }
 
-      context.log(err);
+      context.log("redeem-reward error:", err);
       return {
         status: 500,
         jsonBody: { error: "INTERNAL_ERROR" },

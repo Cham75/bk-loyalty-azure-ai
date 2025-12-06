@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ChangeEvent } from "react";
 
 import { QRCodeCanvas } from "qrcode.react";
@@ -42,6 +42,10 @@ const fileToBase64 = (file: File): Promise<string> => {
 };
 
 function App() {
+  // Auth
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  // API / points / receipts / rewards
   const [apiMessage, setApiMessage] = useState<string | null>(null);
   const [points, setPoints] = useState<number | null>(null);
   const [isCallingApi, setIsCallingApi] = useState(false);
@@ -59,14 +63,33 @@ function App() {
   const [isRedeeming, setIsRedeeming] = useState(false);
   const [redeemError, setRedeemError] = useState<string | null>(null);
 
+  // ------- AUTH: load current user from /.auth/me -------
+  const loadUser = async () => {
+    try {
+      const res = await fetch("/.auth/me");
+      if (!res.ok) {
+        setUserEmail(null);
+        return;
+      }
+      const payload = await res.json();
+      const principal = (payload as any)?.clientPrincipal;
+      setUserEmail(principal?.userDetails ?? null);
+    } catch (error) {
+      console.error(error);
+      setUserEmail(null);
+    }
+  };
+
+  useEffect(() => {
+    loadUser();
+  }, []);
+
   const callHealthCheck = async () => {
     try {
       setIsCallingApi(true);
       setApiMessage(null);
 
-      const res = await fetch(
-        "/api/health-check?name=Customer"
-      );
+      const res = await fetch("/api/health-check?name=Customer");
       if (!res.ok) {
         throw new Error(`Health-check failed with status ${res.status}`);
       }
@@ -130,7 +153,7 @@ function App() {
           fileName: selectedFile.name,
           contentType: selectedFile.type || "image/jpeg",
           fileBase64: base64,
-          // For now amount is fake (75 MAD); later Document Intelligence will detect it.
+          // For now amount is fake (75 MAD); Document Intelligence overrides this if it succeeds.
           amount: 75,
         }),
       });
@@ -139,11 +162,14 @@ function App() {
 
       if (!res.ok) {
         console.error("upload-receipt error", data);
-        setLastReceiptResult("Error uploading receipt.");
+        if (data?.error === "UNAUTHENTICATED") {
+          setLastReceiptResult("Please sign in before uploading a receipt.");
+        } else {
+          setLastReceiptResult("Error uploading receipt.");
+        }
         return;
       }
 
-      // backend returns: { userId, pointsEarned, newBalance, ... }
       setPoints(data.newBalance);
       setLastReceiptResult(
         `Receipt stored. Amount detected: ${data.amount} – +${data.pointsEarned} points (new balance: ${data.newBalance}).`
@@ -175,6 +201,8 @@ function App() {
       if (!res.ok) {
         if (data.error === "NOT_ENOUGH_POINTS") {
           setRedeemError("Not enough points (need 100).");
+        } else if (data.error === "UNAUTHENTICATED") {
+          setRedeemError("Please sign in first.");
         } else {
           setRedeemError("Error while creating reward.");
         }
@@ -206,13 +234,51 @@ function App() {
           padding: "2rem 1.5rem 3rem",
         }}
       >
-        <header style={{ marginBottom: "2rem" }}>
-          <h1 style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>
-            BK Loyalty – Customer Portal
-          </h1>
-          <p style={{ color: "#555" }}>
-            Upload your Burger King receipt to earn points and unlock rewards.
-          </p>
+        {/* HEADER WITH SIGN-IN / SIGN-OUT */}
+        <header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "2rem",
+          }}
+        >
+          <div>
+            <h1 style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>
+              BK Loyalty – Customer Portal
+            </h1>
+            <p style={{ color: "#555" }}>
+              Upload your Burger King receipt to earn points and unlock rewards.
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-end",
+              gap: "0.25rem",
+            }}
+          >
+            {userEmail && (
+              <span style={{ fontSize: "0.9rem", color: "#4b5563" }}>
+                Signed in as <strong>{userEmail}</strong>
+              </span>
+            )}
+            <a
+              href={userEmail ? "/.auth/logout" : "/.auth/login/ciam"}
+              style={{
+                padding: "0.35rem 0.8rem",
+                borderRadius: "999px",
+                border: "1px solid #e5e7eb",
+                textDecoration: "none",
+                fontSize: "0.85rem",
+                background: "#ffffff",
+              }}
+            >
+              {userEmail ? "Sign out" : "Sign in"}
+            </a>
+          </div>
         </header>
 
         {/* Section 1 – API connectivity test */}
@@ -350,7 +416,7 @@ function App() {
           )}
         </section>
 
-        {/* Section 3 – Receipt upload (real upload, fake amount) */}
+        {/* Section 3 – Receipt upload */}
         <section
           style={{
             background: "#fff",
@@ -364,8 +430,8 @@ function App() {
           </h2>
           <p style={{ marginBottom: "0.75rem", color: "#555" }}>
             This sends the image to the backend, stores it in Blob Storage,
-            saves a receipt document in Cosmos DB, and (for now) uses a fixed
-            amount (75 MAD) to compute points.
+            saves a receipt document in Cosmos DB, and uses Document Intelligence
+            to detect the real total amount.
           </p>
 
           <div
@@ -408,7 +474,7 @@ function App() {
                 color: "#fff",
               }}
             >
-              {isUploadingReceipt ? "Uploading..." : "Upload & earn (fake 75 MAD)"}
+              {isUploadingReceipt ? "Uploading..." : "Upload & earn"}
             </button>
           </div>
 
@@ -423,17 +489,6 @@ function App() {
               {lastReceiptResult}
             </p>
           )}
-
-          <p
-            style={{
-              marginTop: "0.75rem",
-              fontSize: "0.9rem",
-              color: "#6b7280",
-            }}
-          >
-            Later, Document Intelligence will detect the real total amount from
-            the ticket instead of using a fixed 75 MAD.
-          </p>
         </section>
       </main>
     </div>

@@ -2,12 +2,20 @@ const { app } = require("@azure/functions");
 const { addPoints, createReceipt } = require("../data/db");
 const { uploadReceiptImage } = require("../data/blob-storage");
 const { extractTotalAmountFromReceipt } = require("../services/document-intelligence");
+const { getUserId } = require("../auth/client-principal");
 
 app.http("upload-receipt", {
   methods: ["POST"],
   authLevel: "anonymous",
   handler: async (request, context) => {
-    const userId = "demo-user-1";
+    const userId = getUserId(request);
+
+    if (!userId) {
+      return {
+        status: 401,
+        jsonBody: { error: "UNAUTHENTICATED" },
+      };
+    }
 
     let body;
     try {
@@ -36,7 +44,7 @@ app.http("upload-receipt", {
       // 1) Convert base64 -> Buffer
       const buffer = Buffer.from(fileBase64, "base64");
 
-      // 2) Call Document Intelligence
+      // 2) Call Document Intelligence to detect amount
       let amount = null;
       try {
         amount = await extractTotalAmountFromReceipt(buffer);
