@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Html5QrcodeScanner } from "html5-qrcode";
+import { Html5QrcodeScanner, Html5QrcodeScanType } from "html5-qrcode";
 
 interface ValidateResponse {
   valid: boolean;
@@ -18,9 +18,9 @@ function App() {
   const [isChecking, setIsChecking] = useState(false);
 
   // QR scanner state
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(true); // auto-open on load
   const [scannerError, setScannerError] = useState<string | null>(null);
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const scannerRef = useRef<any>(null); // use any to avoid TS type issues with the lib
 
   // ------- AUTH: load current user from /.auth/me -------
   async function loadUser() {
@@ -100,7 +100,6 @@ function App() {
   }
 
   function handleScanError(error: unknown) {
-    // TypeScript is happy because we explicitly typed error: unknown
     console.debug("QR scan error:", error);
   }
 
@@ -111,7 +110,9 @@ function App() {
       if (scannerRef.current) {
         scannerRef.current
           .clear()
-          .catch((err: unknown) => console.error("Failed to clear scanner", err));
+          .catch((err: unknown) =>
+            console.error("Failed to clear scanner", err)
+          );
         scannerRef.current = null;
       }
       return;
@@ -124,6 +125,8 @@ function App() {
       {
         fps: 10,
         qrbox: 250,
+        rememberLastUsedCamera: true,
+        supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA],
       },
       false
     );
@@ -146,7 +149,8 @@ function App() {
       },
       (err: unknown) => {
         handleScanError(err);
-        // You can set a user-visible error only on "hard" errors if you want
+        // we only log here; if you want, you can set a visible error
+        // setScannerError("Unable to read QR code.");
       }
     );
 
@@ -192,7 +196,7 @@ function App() {
               BK Loyalty – Staff
             </h1>
             <p style={{ color: "#9ca3af" }}>
-              Type or scan the reward code from the customer&apos;s QR and
+              Scan or type the reward code from the customer&apos;s QR and
               validate it. The reward will be marked as used in the backend.
             </p>
           </div>
@@ -258,7 +262,7 @@ function App() {
                 fontWeight: 500,
               }}
             >
-              {isScannerOpen ? "Close QR scanner" : "Scan QR code"}
+              {isScannerOpen ? "Close QR scanner" : "Open QR scanner"}
             </button>
 
             {isScannerOpen && (
