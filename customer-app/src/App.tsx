@@ -56,7 +56,7 @@ const fileToBase64 = (file: File): Promise<string> => {
 
 function App() {
   // Auth
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userLabel, setUserLabel] = useState<string | null>(null);
   const [loadingUser, setLoadingUser] = useState<boolean>(true);
 
   // API / points / receipts / rewards
@@ -85,7 +85,7 @@ function App() {
       });
 
       if (!res.ok) {
-        setUserEmail(null);
+        setUserLabel(null);
         return;
       }
 
@@ -94,34 +94,53 @@ function App() {
         | ClientPrincipal
         | undefined;
 
+      console.log("clientPrincipal from /.auth/me:", principal);
+
       if (!principal) {
-        setUserEmail(null);
+        setUserLabel(null);
         return;
       }
 
-      // 1) Try userDetails directly
-      let email: string | null = principal.userDetails ?? null;
+      let label: string | null = null;
 
-      // 2) Fallback: look into claims array (emails/email/emailaddress)
-      if (!email && Array.isArray(principal.claims)) {
-        const emailClaim =
-          principal.claims.find(
-            (c) =>
-              c.typ === "emails" ||
-              c.typ === "email" ||
-              c.typ ===
-                "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
-          ) ?? null;
+      // Try to pull an email from claims
+      const claims = principal.claims || [];
 
-        if (emailClaim) {
-          email = emailClaim.val;
+      const findClaim = (...types: string[]) =>
+        claims.find((c) => types.includes(c.typ)) || null;
+
+      // 1) Look for explicit email claims
+      const emailClaim =
+        findClaim("emails") ||
+        findClaim("email") ||
+        findClaim(
+          "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
+        ) ||
+        findClaim("preferred_username");
+
+      if (emailClaim && emailClaim.val) {
+        label = emailClaim.val;
+      }
+
+      // 2) If no email claim, use userDetails (but ignore "unknown")
+      if (!label && principal.userDetails) {
+        if (
+          principal.userDetails.toLowerCase() !== "unknown" &&
+          principal.userDetails.toLowerCase() !== "n/a"
+        ) {
+          label = principal.userDetails;
         }
       }
 
-      setUserEmail(email);
+      // 3) Last resort: show userId
+      if (!label && principal.userId) {
+        label = principal.userId;
+      }
+
+      setUserLabel(label);
     } catch (error) {
       console.error("Error loading /.auth/me", error);
-      setUserEmail(null);
+      setUserLabel(null);
     } finally {
       setLoadingUser(false);
     }
@@ -270,6 +289,8 @@ function App() {
     }
   };
 
+  const isSignedIn = !!userLabel;
+
   return (
     <div
       style={{
@@ -315,9 +336,9 @@ function App() {
               <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>
                 Checking session…
               </span>
-            ) : userEmail ? (
+            ) : isSignedIn ? (
               <span style={{ fontSize: "0.9rem", color: "#4b5563" }}>
-                Signed in as <strong>{userEmail}</strong>
+                Signed in as <strong>{userLabel}</strong>
               </span>
             ) : (
               <span style={{ fontSize: "0.9rem", color: "#6b7280" }}>
@@ -325,7 +346,7 @@ function App() {
               </span>
             )}
             <a
-              href={userEmail ? "/.auth/logout" : "/.auth/login/ciam"}
+              href={isSignedIn ? "/.auth/logout" : "/.auth/login/ciam"}
               style={{
                 padding: "0.35rem 0.8rem",
                 borderRadius: "999px",
@@ -335,7 +356,7 @@ function App() {
                 background: "#ffffff",
               }}
             >
-              {userEmail ? "Sign out" : "Sign in"}
+              {isSignedIn ? "Sign out" : "Sign in"}
             </a>
           </div>
         </header>
