@@ -4,18 +4,18 @@ const { getUserId } = require("../auth/client-principal");
 
 app.http("get-user-balance", {
   methods: ["GET"],
-  authLevel: "anonymous", // SWA auth is in front, we still check user ourselves
+  authLevel: "anonymous", // SWA auth is in front, we still check ourselves
   handler: async (request, context) => {
-    const userId = getUserId(request);
-
-    if (!userId) {
-      return {
-        status: 401,
-        jsonBody: { error: "UNAUTHENTICATED" },
-      };
-    }
-
     try {
+      const userId = getUserId(request);
+
+      if (!userId) {
+        return {
+          status: 401,
+          jsonBody: { error: "UNAUTHENTICATED" },
+        };
+      }
+
       const user = await getUser(userId);
 
       return {
@@ -31,7 +31,7 @@ app.http("get-user-balance", {
         status: 500,
         jsonBody: {
           error: "INTERNAL_ERROR",
-          message: err.message || "Unknown error",
+          message: err && err.message ? err.message : "Unknown error",
         },
       };
     }

@@ -8,40 +8,40 @@ app.http("upload-receipt", {
   methods: ["POST"],
   authLevel: "anonymous",
   handler: async (request, context) => {
-    const userId = getUserId(request);
-
-    if (!userId) {
-      return {
-        status: 401,
-        jsonBody: { error: "UNAUTHENTICATED" },
-      };
-    }
-
-    let body;
     try {
-      body = await request.json();
-    } catch {
-      body = null;
-    }
+      const userId = getUserId(request);
 
-    if (!body) {
-      return {
-        status: 400,
-        jsonBody: { error: "Missing JSON body" },
-      };
-    }
+      if (!userId) {
+        return {
+          status: 401,
+          jsonBody: { error: "UNAUTHENTICATED" },
+        };
+      }
 
-    const { fileName, contentType, fileBase64 } = body;
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        body = null;
+      }
 
-    if (!fileBase64) {
-      return {
-        status: 400,
-        jsonBody: { error: "fileBase64 required for upload-receipt" },
-      };
-    }
+      if (!body) {
+        return {
+          status: 400,
+          jsonBody: { error: "Missing JSON body" },
+        };
+      }
 
-    try {
-      // 1) Convert base64 -> Buffer
+      const { fileName, contentType, fileBase64 } = body;
+
+      if (!fileBase64) {
+        return {
+          status: 400,
+          jsonBody: { error: "fileBase64 required for upload-receipt" },
+        };
+      }
+
+      // 1) Convert base64 -> Buffer for Document Intelligence
       const buffer = Buffer.from(fileBase64, "base64");
 
       // 2) Call Document Intelligence to detect amount
@@ -93,7 +93,10 @@ app.http("upload-receipt", {
       context.log("upload-receipt error", err);
       return {
         status: 500,
-        jsonBody: { error: "INTERNAL_ERROR" },
+        jsonBody: {
+          error: "INTERNAL_ERROR",
+          message: err && err.message ? err.message : "Unknown error",
+        },
       };
     }
   },

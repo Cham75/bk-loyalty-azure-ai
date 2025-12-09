@@ -6,27 +6,27 @@ app.http("redeem-reward", {
   methods: ["POST"],
   authLevel: "anonymous",
   handler: async (request, context) => {
-    const userId = getUserId(request);
-
-    if (!userId) {
-      return {
-        status: 401,
-        jsonBody: { error: "UNAUTHENTICATED" },
-      };
-    }
-
-    let body;
     try {
-      body = await request.json();
-    } catch {
-      body = {};
-    }
+      const userId = getUserId(request);
 
-    const rewardName = body.rewardName || "Free Sundae";
-    const pointsCost =
-      typeof body.pointsCost === "number" ? body.pointsCost : 100;
+      if (!userId) {
+        return {
+          status: 401,
+          jsonBody: { error: "UNAUTHENTICATED" },
+        };
+      }
 
-    try {
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        body = {};
+      }
+
+      const rewardName = body.rewardName || "Free Sundae";
+      const pointsCost =
+        typeof body.pointsCost === "number" ? body.pointsCost : 100;
+
       const { reward, user } = await createReward(
         userId,
         rewardName,
@@ -45,7 +45,7 @@ app.http("redeem-reward", {
         },
       };
     } catch (err) {
-      if (err.code === "NOT_ENOUGH_POINTS") {
+      if (err && err.code === "NOT_ENOUGH_POINTS") {
         return {
           status: 400,
           jsonBody: {
@@ -58,7 +58,10 @@ app.http("redeem-reward", {
       context.log("redeem-reward error:", err);
       return {
         status: 500,
-        jsonBody: { error: "INTERNAL_ERROR" },
+        jsonBody: {
+          error: "INTERNAL_ERROR",
+          message: err && err.message ? err.message : "Unknown error",
+        },
       };
     }
   },
