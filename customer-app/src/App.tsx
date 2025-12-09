@@ -22,6 +22,19 @@ interface RewardResponse {
   pointsCost: number;
 }
 
+type ClientClaim = {
+  typ: string;
+  val: string;
+};
+
+type ClientPrincipal = {
+  userId: string;
+  userDetails?: string | null;
+  identityProvider: string;
+  userRoles: string[];
+  claims?: ClientClaim[];
+};
+
 // Helper: convert File → base64 (without data: prefix)
 const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -44,6 +57,7 @@ const fileToBase64 = (file: File): Promise<string> => {
 function App() {
   // Auth
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [loadingUser, setLoadingUser] = useState<boolean>(true);
 
   // API / points / receipts / rewards
   const [apiMessage, setApiMessage] = useState<string | null>(null);
@@ -66,17 +80,50 @@ function App() {
   // ------- AUTH: load current user from /.auth/me -------
   const loadUser = async () => {
     try {
-      const res = await fetch("/.auth/me");
+      const res = await fetch("/.auth/me", {
+        credentials: "include",
+      });
+
       if (!res.ok) {
         setUserEmail(null);
         return;
       }
+
       const payload = await res.json();
-      const principal = (payload as any)?.clientPrincipal;
-      setUserEmail(principal?.userDetails ?? null);
+      const principal = payload?.clientPrincipal as
+        | ClientPrincipal
+        | undefined;
+
+      if (!principal) {
+        setUserEmail(null);
+        return;
+      }
+
+      // 1) Try userDetails directly
+      let email: string | null = principal.userDetails ?? null;
+
+      // 2) Fallback: look into claims array (emails/email/emailaddress)
+      if (!email && Array.isArray(principal.claims)) {
+        const emailClaim =
+          principal.claims.find(
+            (c) =>
+              c.typ === "emails" ||
+              c.typ === "email" ||
+              c.typ ===
+                "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
+          ) ?? null;
+
+        if (emailClaim) {
+          email = emailClaim.val;
+        }
+      }
+
+      setUserEmail(email);
     } catch (error) {
-      console.error(error);
+      console.error("Error loading /.auth/me", error);
       setUserEmail(null);
+    } finally {
+      setLoadingUser(false);
     }
   };
 
@@ -110,6 +157,10 @@ function App() {
 
       const res = await fetch("/api/get-user-balance");
       if (!res.ok) {
+        if (res.status === 401) {
+          setPoints(null);
+          return;
+        }
         throw new Error(`get-user-balance failed with status ${res.status}`);
       }
 
@@ -153,7 +204,7 @@ function App() {
           fileName: selectedFile.name,
           contentType: selectedFile.type || "image/jpeg",
           fileBase64: base64,
-          // For now amount is fake (75 MAD); Document Intelligence overrides this if it succeeds.
+          // For now amount is fake (75); Document Intelligence overrides this if it succeeds.
           amount: 75,
         }),
       });
@@ -260,9 +311,17 @@ function App() {
               gap: "0.25rem",
             }}
           >
-            {userEmail && (
+            {loadingUser ? (
+              <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+                Checking session…
+              </span>
+            ) : userEmail ? (
               <span style={{ fontSize: "0.9rem", color: "#4b5563" }}>
                 Signed in as <strong>{userEmail}</strong>
+              </span>
+            ) : (
+              <span style={{ fontSize: "0.9rem", color: "#6b7280" }}>
+                Not signed in
               </span>
             )}
             <a
