@@ -9,7 +9,7 @@
               "clientSecretSettingName": "CIAM_CLIENT_SECRET"
             },
             "openIdConnectConfiguration": {
-              "wellKnownOpenIdConfiguration": "https://bkloyaltyauth.ciamlogin.com/7c7b7a46-8190-4408-8961-8860a0bc3d9e/v2.0/.well-known/openid-configuration"
+              "wellKnownOpenIdConfiguration": "https://bkloyaltyauth.ciamlogin.com/7c7b7a46-8190-4408-8961-8860a0bc3d9e/v2.0/.well-known/openid-configuration?appid=10cb9619-1ad0-48c4-ba90-bf8165fefe41"
             }
           },
           "login": {
