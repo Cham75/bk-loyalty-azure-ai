@@ -1,220 +1,116 @@
-import { useEffect, useState } from "react";
-import type { ChangeEvent } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
-import { QRCodeCanvas } from "qrcode.react";
-
-interface HealthCheckResponse {
-  status: string;
-  message: string;
-  timestamp: string;
-}
-
-interface BalanceResponse {
+type UploadResponse = {
   userId: string;
-  points: number;
-}
-
-interface RewardResponse {
-  rewardId: string;
-  rewardName: string;
-  qrPayload: string;
+  amount: number;
+  pointsEarned: number;
   newBalance: number;
-  pointsCost: number;
+  receiptId: string;
+  receiptBlobUrl: string;
+  receiptDate?: string;
+  merchantName?: string;
+};
+
+type ErrorResponse = {
+  error?: string;
+  message?: string;
+  [key: string]: unknown;
+};
+
+function formatDate(iso?: string) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString();
 }
 
-type ClientClaim = {
-  typ: string;
-  val: string;
-};
-
-type ClientPrincipal = {
-  userId: string;
-  userDetails?: string | null;
-  identityProvider: string;
-  userRoles: string[];
-  claims?: ClientClaim[];
-};
-
-// Helper: convert File → base64 (without data: prefix)
-const fileToBase64 = (file: File): Promise<string> => {
+async function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") {
-        const commaIndex = result.indexOf(",");
-        const base64 = commaIndex >= 0 ? result.slice(commaIndex + 1) : result;
-        resolve(base64);
-      } else {
-        reject(new Error("Unexpected FileReader result type"));
-      }
+      const result = reader.result as string;
+      const base64 = result.split(",")[1] || result;
+      resolve(base64);
     };
-    reader.onerror = (err) => reject(err);
+    reader.onerror = reject;
     reader.readAsDataURL(file);
   });
-};
+}
 
-function App() {
-  // Auth
-  const [userLabel, setUserLabel] = useState<string | null>(null);
-  const [loadingUser, setLoadingUser] = useState<boolean>(true);
+const App: React.FC = () => {
+  const [balance, setBalance] = useState<number | null>(null);
+  const [loadingBalance, setLoadingBalance] = useState(false);
 
-  // API / points / receipts / rewards
-  const [apiMessage, setApiMessage] = useState<string | null>(null);
-  const [points, setPoints] = useState<number | null>(null);
-  const [isCallingApi, setIsCallingApi] = useState(false);
-  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
-
-  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
-  const [lastReceiptResult, setLastReceiptResult] = useState<string | null>(
-    null
-  );
-  const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const [lastReward, setLastReward] = useState<RewardResponse | null>(null);
-  const [isRedeeming, setIsRedeeming] = useState(false);
-  const [redeemError, setRedeemError] = useState<string | null>(null);
-
-  // ------- AUTH: load current user from /.auth/me -------
-  const loadUser = async () => {
-    try {
-      const res = await fetch("/.auth/me", {
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        setUserLabel(null);
-        return;
-      }
-
-      const payload = await res.json();
-      const principal = payload?.clientPrincipal as
-        | ClientPrincipal
-        | undefined;
-
-      console.log("clientPrincipal from /.auth/me:", principal);
-
-      if (!principal) {
-        setUserLabel(null);
-        return;
-      }
-
-      let label: string | null = null;
-
-      // Try to pull an email from claims
-      const claims = principal.claims || [];
-
-      const findClaim = (...types: string[]) =>
-        claims.find((c) => types.includes(c.typ)) || null;
-
-      // 1) Look for explicit email claims
-      const emailClaim =
-        findClaim("emails") ||
-        findClaim("email") ||
-        findClaim(
-          "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
-        ) ||
-        findClaim("preferred_username");
-
-      if (emailClaim && emailClaim.val) {
-        label = emailClaim.val;
-      }
-
-      // 2) If no email claim, use userDetails (but ignore "unknown")
-      if (!label && principal.userDetails) {
-        if (
-          principal.userDetails.toLowerCase() !== "unknown" &&
-          principal.userDetails.toLowerCase() !== "n/a"
-        ) {
-          label = principal.userDetails;
-        }
-      }
-
-      // 3) Last resort: show userId
-      if (!label && principal.userId) {
-        label = principal.userId;
-      }
-
-      setUserLabel(label);
-    } catch (error) {
-      console.error("Error loading /.auth/me", error);
-      setUserLabel(null);
-    } finally {
-      setLoadingUser(false);
-    }
-  };
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    loadUser();
-  }, []);
-
-  const callHealthCheck = async () => {
-    try {
-      setIsCallingApi(true);
-      setApiMessage(null);
-
-      const res = await fetch("/api/health-check?name=Customer");
-      if (!res.ok) {
-        throw new Error(`Health-check failed with status ${res.status}`);
-      }
-
-      const data = (await res.json()) as HealthCheckResponse;
-      setApiMessage(`${data.status} – ${data.message}`);
-    } catch (error) {
-      console.error(error);
-      setApiMessage("Error calling health-check API");
-    } finally {
-      setIsCallingApi(false);
-    }
-  };
-
-  const fetchBalance = async () => {
-    try {
-      setIsLoadingBalance(true);
-
-      const res = await fetch("/api/get-user-balance");
-      if (!res.ok) {
-        if (res.status === 401) {
-          setPoints(null);
+    const loadBalance = async () => {
+      try {
+        setLoadingBalance(true);
+        const res = await fetch("/api/get-user-balance");
+        if (!res.ok) {
+          setBalance(null);
           return;
         }
-        throw new Error(`get-user-balance failed with status ${res.status}`);
+        const data = await res.json();
+        setBalance(typeof data.points === "number" ? data.points : null);
+      } catch {
+        setBalance(null);
+      } finally {
+        setLoadingBalance(false);
       }
+    };
 
-      const data = (await res.json()) as BalanceResponse;
-      setPoints(data.points);
-    } catch (error) {
-      console.error(error);
-      setPoints(null);
-    } finally {
-      setIsLoadingBalance(false);
+    loadBalance();
+  }, []);
+
+  const resetSelection = () => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
     }
+    setSelectedFile(null);
+    setPreviewUrl(null);
   };
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleCameraClick = () => {
+    resetSelection();
+    cameraInputRef.current?.click();
+  };
+
+  const handleGalleryClick = () => {
+    resetSelection();
+    galleryInputRef.current?.click();
+  };
+
+  const onFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
-      setSelectedFile(null);
-      setSelectedFileName(null);
       return;
     }
     setSelectedFile(file);
-    setSelectedFileName(file.name);
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    setSuccessMessage(null);
+    setErrorMessage(null);
   };
 
-  const uploadRealReceipt = async () => {
-    if (!selectedFile) {
-      setLastReceiptResult("Please select a receipt image first.");
-      return;
-    }
+  const handleConfirmUpload = async () => {
+    if (!selectedFile) return;
+
+    setIsUploading(true);
+    setSuccessMessage(null);
+    setErrorMessage(null);
 
     try {
-      setIsUploadingReceipt(true);
-      setLastReceiptResult(null);
-
-      const base64 = await fileToBase64(selectedFile);
+      const fileBase64 = await fileToBase64(selectedFile);
 
       const res = await fetch("/api/upload-receipt", {
         method: "POST",
@@ -222,357 +118,225 @@ function App() {
         body: JSON.stringify({
           fileName: selectedFile.name,
           contentType: selectedFile.type || "image/jpeg",
-          fileBase64: base64,
-          // For now amount is fake (75); Document Intelligence overrides this if it succeeds.
-          amount: 75,
+          fileBase64,
         }),
       });
 
-      const data = await res.json();
+      const data: UploadResponse | ErrorResponse = await res.json();
 
       if (!res.ok) {
-        console.error("upload-receipt error", data);
-        if (data?.error === "UNAUTHENTICATED") {
-          setLastReceiptResult("Please sign in before uploading a receipt.");
-        } else {
-          setLastReceiptResult("Error uploading receipt.");
-        }
+        const errMsg =
+          (data as ErrorResponse).message ||
+          "The receipt could not be processed. Please try again.";
+        setErrorMessage(errMsg);
         return;
       }
 
-      setPoints(data.newBalance);
-      setLastReceiptResult(
-        `Receipt stored. Amount detected: ${data.amount} – +${data.pointsEarned} points (new balance: ${data.newBalance}).`
-      );
-    } catch (error) {
-      console.error(error);
-      setLastReceiptResult("Network error while uploading receipt.");
+      const ok = data as UploadResponse;
+
+      setBalance(ok.newBalance);
+
+      const dateStr = formatDate(ok.receiptDate);
+      const amountStr = ok.amount.toFixed(2);
+
+      const msg = dateStr
+        ? `Your receipt of ${amountStr} € dated ${dateStr} has been scanned. You earned ${ok.pointsEarned} points.`
+        : `Your receipt of ${amountStr} € has been scanned. You earned ${ok.pointsEarned} points.`;
+
+      setSuccessMessage(msg);
+      resetSelection();
+    } catch (e) {
+      console.error(e);
+      setErrorMessage("Unexpected error, please try again.");
     } finally {
-      setIsUploadingReceipt(false);
+      setIsUploading(false);
     }
   };
 
-  const redeemForReward = async () => {
-    try {
-      setIsRedeeming(true);
-      setRedeemError(null);
-
-      const res = await fetch("/api/redeem-reward", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rewardName: "Free Sundae",
-          pointsCost: 100,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        if (data.error === "NOT_ENOUGH_POINTS") {
-          setRedeemError("Not enough points (need 100).");
-        } else if (data.error === "UNAUTHENTICATED") {
-          setRedeemError("Please sign in first.");
-        } else {
-          setRedeemError("Error while creating reward.");
-        }
-        return;
-      }
-
-      setPoints(data.newBalance);
-      setLastReward(data as RewardResponse);
-    } catch (err) {
-      console.error(err);
-      setRedeemError("Network error.");
-    } finally {
-      setIsRedeeming(false);
-    }
+  const handleRetake = () => {
+    resetSelection();
   };
-
-  const isSignedIn = !!userLabel;
 
   return (
     <div
       style={{
-        minHeight: "100vh",
-        background: "#f5f5f5",
-        fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+        maxWidth: "480px",
+        margin: "0 auto",
+        padding: "1.5rem",
+        fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       }}
     >
-      <main
+      <h1 style={{ fontSize: "1.6rem", marginBottom: "0.5rem" }}>BK Loyalty</h1>
+
+      <p style={{ marginBottom: "1.5rem", color: "#555" }}>
+        {loadingBalance
+          ? "Loading your points..."
+          : balance !== null
+          ? `You have ${balance} points.`
+          : "Sign in to see your points."}
+      </p>
+
+      <section
         style={{
-          maxWidth: 900,
-          margin: "0 auto",
-          padding: "2rem 1.5rem 3rem",
+          border: "1px solid #eee",
+          borderRadius: "0.75rem",
+          padding: "1rem",
+          marginBottom: "1rem",
+          boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
         }}
       >
-        {/* HEADER WITH SIGN-IN / SIGN-OUT */}
-        <header
+        <h2 style={{ fontSize: "1.2rem", marginBottom: "0.5rem" }}>
+          Upload your receipt
+        </h2>
+
+        {/* Hidden inputs */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          style={{ display: "none" }}
+          onChange={onFileSelected}
+        />
+        <input
+          ref={galleryInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={onFileSelected}
+        />
+
+        {/* Buttons */}
+        <div style={{ display: "flex", gap: "0.75rem", marginBottom: "0.5rem" }}>
+          <button
+            type="button"
+            onClick={handleCameraClick}
+            style={{
+              flex: 1,
+              padding: "0.6rem 0.8rem",
+              borderRadius: "999px",
+              border: "none",
+              cursor: "pointer",
+              fontWeight: 600,
+              background: "#f97316",
+              color: "white",
+            }}
+          >
+            Take a photo
+          </button>
+          <button
+            type="button"
+            onClick={handleGalleryClick}
+            style={{
+              flex: 1,
+              padding: "0.6rem 0.8rem",
+              borderRadius: "999px",
+              border: "1px solid #ddd",
+              cursor: "pointer",
+              fontWeight: 500,
+              background: "#fff",
+            }}
+          >
+            Choose from gallery
+          </button>
+        </div>
+
+        {/* Note below the buttons */}
+        <p
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: "2rem",
+            fontStyle: "italic",
+            fontSize: "0.9rem",
+            color: "#666",
+            marginBottom: "0.75rem",
           }}
         >
-          <div>
-            <h1 style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>
-              BK Loyalty – Customer Portal
-            </h1>
-            <p style={{ color: "#555" }}>
-              Upload your Burger King receipt to earn points and unlock rewards.
-            </p>
-          </div>
+          Please make sure that the words “Burger King”, the amount and the date of
+          the receipt are clearly visible in the photo.
+        </p>
 
+        {/* Preview + confirm / retake */}
+        {previewUrl && (
           <div
             style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-end",
-              gap: "0.25rem",
+              marginTop: "0.5rem",
+              borderRadius: "0.75rem",
+              border: "1px solid #eee",
+              padding: "0.5rem",
             }}
           >
-            {loadingUser ? (
-              <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>
-                Checking session…
-              </span>
-            ) : isSignedIn ? (
-              <span style={{ fontSize: "0.9rem", color: "#4b5563" }}>
-                Signed in as <strong>{userLabel}</strong>
-              </span>
-            ) : (
-              <span style={{ fontSize: "0.9rem", color: "#6b7280" }}>
-                Not signed in
-              </span>
-            )}
-            <a
-              href={isSignedIn ? "/.auth/logout" : "/.auth/login/ciam"}
+            <img
+              src={previewUrl}
+              alt="Receipt preview"
               style={{
-                padding: "0.35rem 0.8rem",
-                borderRadius: "999px",
-                border: "1px solid #e5e7eb",
-                textDecoration: "none",
-                fontSize: "0.85rem",
-                background: "#ffffff",
-              }}
-            >
-              {isSignedIn ? "Sign out" : "Sign in"}
-            </a>
-          </div>
-        </header>
-
-        {/* Section 1 – API connectivity test */}
-        <section
-          style={{
-            background: "#fff",
-            padding: "1.5rem",
-            borderRadius: "0.75rem",
-            boxShadow: "0 4px 10px rgba(0, 0, 0, 0.04)",
-            marginBottom: "1.5rem",
-          }}
-        >
-          <h2 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>
-            Backend status
-          </h2>
-          <p style={{ marginBottom: "0.75rem", color: "#555" }}>
-            Check that the API (Azure Functions) is reachable from this app.
-          </p>
-          <button
-            onClick={callHealthCheck}
-            disabled={isCallingApi}
-            style={{
-              padding: "0.5rem 1rem",
-              borderRadius: "0.5rem",
-              border: "none",
-              cursor: "pointer",
-              fontWeight: 600,
-              background: "#5a2dfc",
-              color: "#fff",
-            }}
-          >
-            {isCallingApi ? "Calling API…" : "Call health-check"}
-          </button>
-          {apiMessage && (
-            <p style={{ marginTop: "0.75rem", color: "#333" }}>{apiMessage}</p>
-          )}
-        </section>
-
-        {/* Section 2 – Points / balance + redeem reward */}
-        <section
-          style={{
-            background: "#fff",
-            padding: "1.5rem",
-            borderRadius: "0.75rem",
-            boxShadow: "0 4px 10px rgba(0, 0, 0, 0.04)",
-            marginBottom: "1.5rem",
-          }}
-        >
-          <h2 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>
-            Your loyalty points
-          </h2>
-          <p style={{ marginBottom: "0.75rem", color: "#555" }}>
-            This calls the <code>/get-user-balance</code> API endpoint.
-          </p>
-          <button
-            onClick={fetchBalance}
-            disabled={isLoadingBalance}
-            style={{
-              padding: "0.5rem 1rem",
-              borderRadius: "0.5rem",
-              border: "none",
-              cursor: "pointer",
-              fontWeight: 600,
-              background: "#111827",
-              color: "#fff",
-            }}
-          >
-            {isLoadingBalance ? "Loading balance…" : "Load my points"}
-          </button>
-          <p style={{ marginTop: "0.75rem", color: "#333" }}>
-            Current balance:{" "}
-            <strong>
-              {points !== null ? `${points} points` : "No data loaded yet"}
-            </strong>
-          </p>
-
-          <div style={{ marginTop: "0.75rem" }}>
-            <button
-              onClick={redeemForReward}
-              disabled={isRedeeming}
-              style={{
-                padding: "0.5rem 1rem",
+                maxWidth: "100%",
                 borderRadius: "0.5rem",
-                border: "none",
-                cursor: "pointer",
-                fontWeight: 600,
-                background: "#dc2626",
-                color: "#fff",
+                marginBottom: "0.5rem",
               }}
-            >
-              {isRedeeming
-                ? "Creating reward..."
-                : "Redeem 100 points for Free Sundae"}
-            </button>
-            {redeemError && (
-              <p style={{ marginTop: "0.5rem", color: "#b91c1c" }}>
-                {redeemError}
-              </p>
-            )}
-          </div>
-
-          {lastReward && (
-            <div
-              style={{
-                marginTop: "1rem",
-                display: "flex",
-                gap: "1rem",
-                flexWrap: "wrap",
-              }}
-            >
-              <div>
-                <p
-                  style={{
-                    marginBottom: "0.5rem",
-                    fontWeight: 600,
-                  }}
-                >
-                  Your reward QR:
-                </p>
-                <QRCodeCanvas value={lastReward.qrPayload} size={160} />
-              </div>
-              <div style={{ fontSize: "0.9rem", color: "#374151" }}>
-                <p>
-                  Reward: <strong>{lastReward.rewardName}</strong>
-                </p>
-                <p>
-                  Code: <strong>{lastReward.rewardId}</strong>
-                </p>
-                <p style={{ marginTop: "0.5rem" }}>
-                  Show this QR (or code) to BK staff. Their app will scan / type
-                  it and validate the reward.
-                </p>
-              </div>
+            />
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <button
+                type="button"
+                onClick={handleConfirmUpload}
+                disabled={isUploading}
+                style={{
+                  flex: 1,
+                  padding: "0.5rem",
+                  borderRadius: "999px",
+                  border: "none",
+                  cursor: "pointer",
+                  background: isUploading ? "#fbbf24" : "#22c55e",
+                  color: "white",
+                  fontWeight: 600,
+                }}
+              >
+                {isUploading ? "Uploading..." : "Confirm upload"}
+              </button>
+              <button
+                type="button"
+                onClick={handleRetake}
+                disabled={isUploading}
+                style={{
+                  flex: 1,
+                  padding: "0.5rem",
+                  borderRadius: "999px",
+                  border: "1px solid #ddd",
+                  cursor: "pointer",
+                  background: "#fff",
+                }}
+              >
+                Retake
+              </button>
             </div>
-          )}
-        </section>
+          </div>
+        )}
 
-        {/* Section 3 – Receipt upload */}
-        <section
-          style={{
-            background: "#fff",
-            padding: "1.5rem",
-            borderRadius: "0.75rem",
-            boxShadow: "0 4px 10px rgba(0, 0, 0, 0.04)",
-          }}
-        >
-          <h2 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>
-            Upload your receipt
-          </h2>
-          <p style={{ marginBottom: "0.75rem", color: "#555" }}>
-            This sends the image to the backend, stores it in Blob Storage,
-            saves a receipt document in Cosmos DB, and uses Document Intelligence
-            to detect the real total amount.
-          </p>
-
-          <div
+        {/* Messages */}
+        {successMessage && (
+          <p
             style={{
-              display: "flex",
-              gap: "0.75rem",
-              flexWrap: "wrap",
-              alignItems: "center",
+              marginTop: "0.75rem",
+              color: "#16a34a",
+              fontSize: "0.95rem",
             }}
           >
-            <label
-              style={{
-                display: "inline-block",
-                padding: "0.5rem 1rem",
-                borderRadius: "0.5rem",
-                border: "1px dashed #9ca3af",
-                cursor: "pointer",
-                background: "#f9fafb",
-              }}
-            >
-              <span>Select receipt image</span>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                style={{ display: "none" }}
-              />
-            </label>
+            {successMessage}
+          </p>
+        )}
 
-            <button
-              onClick={uploadRealReceipt}
-              disabled={isUploadingReceipt}
-              style={{
-                padding: "0.5rem 1rem",
-                borderRadius: "0.5rem",
-                border: "none",
-                cursor: "pointer",
-                fontWeight: 600,
-                background: "#16a34a",
-                color: "#fff",
-              }}
-            >
-              {isUploadingReceipt ? "Uploading..." : "Upload & earn"}
-            </button>
-          </div>
-
-          {selectedFileName && (
-            <p style={{ marginTop: "0.75rem", color: "#333" }}>
-              Selected file: <strong>{selectedFileName}</strong>
-            </p>
-          )}
-
-          {lastReceiptResult && (
-            <p style={{ marginTop: "0.75rem", color: "#333" }}>
-              {lastReceiptResult}
-            </p>
-          )}
-        </section>
-      </main>
+        {errorMessage && (
+          <p
+            style={{
+              marginTop: "0.75rem",
+              color: "#dc2626",
+              fontSize: "0.95rem",
+            }}
+          >
+            {errorMessage}
+          </p>
+        )}
+      </section>
     </div>
   );
-}
+};
 
 export default App;

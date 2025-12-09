@@ -1,3 +1,4 @@
+// api/src/services/document-intelligence.js
 const { AzureKeyCredential, DocumentAnalysisClient } = require("@azure/ai-form-recognizer");
 
 const endpoint = process.env.DOCINT_ENDPOINT;
@@ -16,11 +17,15 @@ function getClient() {
   return client;
 }
 
-// buffer = Buffer of the image (jpeg/png...)
-async function extractTotalAmountFromReceipt(buffer) {
+/**
+ * Analyze a receipt image (Buffer) and return:
+ * - amount (number | null)
+ * - merchantName (string | null)
+ * - transactionDate (ISO string | null)
+ */
+async function extractReceiptInfo(buffer) {
   const client = getClient();
 
-  // Use the prebuilt receipt model
   const poller = await client.beginAnalyzeDocument("prebuilt-receipt", buffer);
   const result = await poller.pollUntilDone();
 
@@ -31,7 +36,7 @@ async function extractTotalAmountFromReceipt(buffer) {
   const receipt = result.documents[0];
   const fields = receipt.fields || {};
 
-  // Different versions/receipts may expose Total / TransactionTotal / Subtotal etc.
+  // ----- TOTAL AMOUNT -----
   const candidate =
     fields.Total ||
     fields.TransactionTotal ||
@@ -39,31 +44,75 @@ async function extractTotalAmountFromReceipt(buffer) {
     fields.SubTotal ||
     null;
 
-  if (!candidate) {
-    return null;
-  }
+  let amount = null;
 
-  // valueNumber if available, otherwise try to parse
-  const raw =
-    candidate.value ??
-    candidate.valueNumber ??
-    candidate.content ??
-    null;
+  if (candidate) {
+    const raw =
+      candidate.value ??
+      candidate.valueNumber ??
+      candidate.content ??
+      null;
 
-  if (typeof raw === "number") {
-    return raw;
-  }
-
-  if (typeof raw === "string") {
-    const parsed = parseFloat(raw.replace(",", "."));
-    if (!isNaN(parsed)) {
-      return parsed;
+    if (typeof raw === "number") {
+      amount = raw;
+    } else if (typeof raw === "string") {
+      // Try to parse from string, keep it simple
+      const normalized = raw
+        .replace(",", ".")
+        .replace(/[^\d.]/g, "");
+      const parsed = parseFloat(normalized);
+      if (!Number.isNaN(parsed)) {
+        amount = parsed;
+      }
     }
   }
 
-  return null;
+  // ----- MERCHANT NAME -----
+  let merchantName = null;
+  if (fields.MerchantName) {
+    merchantName =
+      (fields.MerchantName.value ||
+        fields.MerchantName.content ||
+        null);
+    if (typeof merchantName === "string") {
+      merchantName = merchantName.trim();
+    }
+  }
+
+  // ----- TRANSACTION DATE -----
+  let transactionDate = null;
+  if (fields.TransactionDate) {
+    const rawDate =
+      fields.TransactionDate.value ||
+      fields.TransactionDate.content ||
+      null;
+
+    if (rawDate instanceof Date) {
+      transactionDate = rawDate.toISOString();
+    } else if (typeof rawDate === "string") {
+      const parsed = new Date(rawDate);
+      if (!Number.isNaN(parsed.getTime())) {
+        transactionDate = parsed.toISOString();
+      }
+    }
+  }
+
+  return {
+    amount: typeof amount === "number" && Number.isFinite(amount) ? amount : null,
+    merchantName: merchantName || null,
+    transactionDate,
+  };
+}
+
+/**
+ * Backward-compatible helper if somewhere you still only need the amount.
+ */
+async function extractTotalAmountFromReceipt(buffer) {
+  const info = await extractReceiptInfo(buffer);
+  return info ? info.amount : null;
 }
 
 module.exports = {
+  extractReceiptInfo,
   extractTotalAmountFromReceipt,
 };
