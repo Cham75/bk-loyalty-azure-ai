@@ -9,6 +9,11 @@ const {
   getRewardsContainer,
 } = require("./cosmos-client");
 
+function safeNumber(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 // ---------- USERS / POINTS ----------
 
 async function getUser(userId) {
@@ -20,11 +25,31 @@ async function getUser(userId) {
 
   try {
     const { resource } = await container.item(userId, userId).read();
+
+    // If Cosmos returns no resource but no error, create a new user doc
+    if (!resource) {
+      const userDoc = {
+        id: userId,
+        userId,
+        email: null,
+        points: 0,
+        createdAt: new Date().toISOString(),
+      };
+
+      const { resource: created } = await container.items.create(userDoc);
+
+      return {
+        userId,
+        points: safeNumber(created && created.points, 0),
+      };
+    }
+
     return {
-      userId: resource.userId,
-      points: resource.points || 0,
+      userId,
+      points: safeNumber(resource.points, 0),
     };
   } catch (err) {
+    // If user not found, create it
     if (err.code === 404) {
       const userDoc = {
         id: userId,
@@ -33,10 +58,11 @@ async function getUser(userId) {
         points: 0,
         createdAt: new Date().toISOString(),
       };
-      const { resource } = await container.items.create(userDoc);
+      const { resource: created } = await container.items.create(userDoc);
+
       return {
-        userId: resource.userId,
-        points: resource.points || 0,
+        userId,
+        points: safeNumber(created && created.points, 0),
       };
     }
     throw err;
@@ -49,8 +75,10 @@ async function addPoints(userId, delta) {
   }
 
   const container = getUsersContainer();
+
+  // Ensure the user exists
   const current = await getUser(userId);
-  const newPoints = current.points + delta;
+  const newPoints = safeNumber(current && current.points, 0) + delta;
 
   const updatedDoc = {
     id: userId,
@@ -59,11 +87,26 @@ async function addPoints(userId, delta) {
     updatedAt: new Date().toISOString(),
   };
 
-  const { resource } = await container.item(userId, userId).replace(updatedDoc);
-  return {
-    userId: resource.userId,
-    points: resource.points || 0,
-  };
+  try {
+    const { resource } = await container.item(userId, userId).replace(updatedDoc);
+
+    return {
+      userId,
+      points: safeNumber(resource && resource.points, newPoints),
+    };
+  } catch (err) {
+    // If user doc somehow doesn't exist yet, create it instead of replace
+    if (err.code === 404) {
+      const { resource: created } = await container.items.create(updatedDoc);
+
+      return {
+        userId,
+        points: safeNumber(created && created.points, newPoints),
+      };
+    }
+
+    throw err;
+  }
 }
 
 // ---------- RECEIPTS ----------
@@ -90,7 +133,8 @@ async function createReceipt(userId, blobUrl, amount, pointsEarned) {
   };
 
   const { resource } = await container.items.create(receiptDoc);
-  return resource;
+  // If for some reason Cosmos returns no resource, fall back to our local doc
+  return resource || receiptDoc;
 }
 
 // ---------- REWARDS ----------
@@ -102,7 +146,9 @@ async function createReward(userId, name, pointsCost) {
 
   // 1) Check current balance
   const current = await getUser(userId);
-  if (current.points < pointsCost) {
+  const currentPoints = safeNumber(current && current.points, 0);
+
+  if (currentPoints < pointsCost) {
     const err = new Error("Not enough points");
     err.code = "NOT_ENOUGH_POINTS";
     throw err;
@@ -125,7 +171,7 @@ async function createReward(userId, name, pointsCost) {
   const { resource } = await container.items.create(rewardDoc);
 
   return {
-    reward: resource,
+    reward: resource || rewardDoc,
     user: updatedUser,
   };
 }
@@ -161,14 +207,17 @@ async function redeemReward(rewardId) {
   reward.redeemed = true;
   reward.redeemedAt = new Date().toISOString();
 
+  // Partition key is /userId
+  const partitionKey = reward.userId || reward.user_id || reward.user;
+
   const { resource } = await container
-    .item(reward.id, reward.userId)
+    .item(reward.id, partitionKey)
     .replace(reward);
 
   return {
     found: true,
     alreadyRedeemed: false,
-    reward: resource,
+    reward: resource || reward,
   };
 }
 
