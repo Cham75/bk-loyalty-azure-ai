@@ -1,18 +1,33 @@
 // api/src/functions/upload-receipt.js
 const { app } = require("@azure/functions");
-const crypto = require("crypto");
-const {
-  addPoints,
-  createReceipt,
-  countReceiptsForUserOnDay,
-  findReceiptByImageHash,
-} = require("../data/db");
-const { uploadReceiptImage } = require("../data/blob-storage");
-const { extractReceiptInfo } = require("../services/document-intelligence");
-const { getUserId } = require("../auth/client-principal");
+const { addPoints, createReceipt } = require("./data/db");
+const { uploadReceiptImage } = require("./data/blob-storage");
+const { analyzeReceipt } = require("./services/document-intelligence");
+const { getUserId } = require("./auth/client-principal");
 
-const DAILY_RECEIPT_LIMIT = 3;
-const MAX_AMOUNT_FOR_POINTS = 80; // >80€ still accepted but points capped
+const MAX_RECEIPT_AGE_DAYS = 2;
+
+function computeReceiptAgeDays(receiptDate) {
+  if (!(receiptDate instanceof Date) || isNaN(receiptDate.getTime())) {
+    return null;
+  }
+
+  const now = new Date();
+  const oneDayMs = 24 * 60 * 60 * 1000;
+
+  const utcReceipt = Date.UTC(
+    receiptDate.getUTCFullYear(),
+    receiptDate.getUTCMonth(),
+    receiptDate.getUTCDate()
+  );
+  const utcNow = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate()
+  );
+
+  return (utcNow - utcReceipt) / oneDayMs;
+}
 
 app.http("upload-receipt", {
   methods: ["POST"],
@@ -51,126 +66,113 @@ app.http("upload-receipt", {
         };
       }
 
-      // 1) Convert base64 -> Buffer
+      // 1) Convert base64 -> Buffer for Document Intelligence
       const buffer = Buffer.from(fileBase64, "base64");
 
-      // 2) Anti-fraud: duplicate image via hash
-      const imageHash = crypto.createHash("sha256").update(buffer).digest("hex");
-
-      const existing = await findReceiptByImageHash(imageHash);
-      if (existing) {
-        return {
-          status: 400,
-          jsonBody: {
-            error: "DUPLICATE_RECEIPT",
-            message: "This receipt has already been used.",
-          },
-        };
-      }
-
-      // 3) Analyze receipt to get amount + merchant + transaction date
-      let info = null;
+      // 2) Call Document Intelligence to detect amount, merchant, date, BK presence
+      let analysis = null;
       try {
-        info = await extractReceiptInfo(buffer);
+        analysis = await analyzeReceipt(buffer);
       } catch (docErr) {
         context.log("Document Intelligence error:", docErr);
       }
 
-      if (!info || !info.amount || isNaN(info.amount)) {
-        return {
-          status: 400,
-          jsonBody: {
-            error: "AMOUNT_NOT_DETECTED",
-            message:
-              "We couldn't read the total amount. Please upload a clearer photo of the receipt.",
-          },
-        };
+      let amount =
+        analysis && typeof analysis.amount === "number" && !isNaN(analysis.amount)
+          ? analysis.amount
+          : null;
+
+      if (amount === null) {
+        // Fallback if AI fails
+        amount = 75;
       }
 
-      const { amount, merchantName, transactionDate } = info;
+      const merchantName =
+        analysis && analysis.merchantName ? analysis.merchantName : null;
 
-      // 4) Merchant must clearly look like Burger King
-      const merchant = (merchantName || "").toUpperCase();
-      if (!merchant || (!merchant.includes("BURGER") && !merchant.includes("BK"))) {
-        return {
-          status: 400,
-          jsonBody: {
-            error: "MERCHANT_NOT_BURGER_KING",
-            message:
-              "We couldn't detect 'Burger King' on this receipt. Please upload a photo where the Burger King name is clearly visible.",
-          },
-        };
+      const transactionDate =
+        analysis &&
+        analysis.transactionDate instanceof Date &&
+        !isNaN(analysis.transactionDate.getTime())
+          ? analysis.transactionDate
+          : null;
+
+      const rawDateText =
+        analysis && analysis.rawDateText ? analysis.rawDateText : null;
+
+      const hasBurgerKing =
+        analysis && typeof analysis.hasBurgerKing === "boolean"
+          ? analysis.hasBurgerKing
+          : null;
+
+      const validationIssues = [];
+
+      if (transactionDate) {
+        const ageDays = computeReceiptAgeDays(transactionDate);
+
+        if (ageDays !== null) {
+          if (ageDays > MAX_RECEIPT_AGE_DAYS) {
+            validationIssues.push({
+              code: "RECEIPT_TOO_OLD",
+              message: "Receipt date is older than the allowed 2 days.",
+            });
+          } else if (ageDays < -1) {
+            validationIssues.push({
+              code: "RECEIPT_IN_FUTURE",
+              message: "Receipt date appears to be in the future.",
+            });
+          }
+        }
       }
 
-      // 5) Date must be readable and <= 2 days old
-      if (!transactionDate) {
-        return {
-          status: 400,
-          jsonBody: {
-            error: "DATE_NOT_DETECTED",
-            message:
-              "We couldn't read the date of the receipt. Please upload a photo where the date is clearly visible.",
-          },
-        };
+      // If we can confidently say it's NOT Burger King
+      if (hasBurgerKing === false) {
+        validationIssues.push({
+          code: "MERCHANT_NOT_BURGER_KING",
+          message: "Could not detect 'Burger King' or 'BK' on the receipt.",
+        });
       }
 
-      const receiptDate = new Date(transactionDate);
-      if (Number.isNaN(receiptDate.getTime())) {
-        return {
-          status: 400,
-          jsonBody: {
-            error: "DATE_INVALID",
-            message:
-              "We couldn't interpret the date on the receipt. Please upload a clearer photo.",
-          },
-        };
-      }
-
-      const now = new Date();
-      const diffMs = now.getTime() - receiptDate.getTime();
-      const diffDays = diffMs / (1000 * 60 * 60 * 24);
-
-      if (diffDays > 2) {
-        const formatted = receiptDate.toISOString().slice(0, 10);
-        return {
-          status: 400,
-          jsonBody: {
-            error: "RECEIPT_TOO_OLD",
-            message: `The receipt dated ${formatted} is older than 2 days and is not eligible for points.`,
-            receiptDate: receiptDate.toISOString(),
-          },
-        };
-      }
-
-      // 6) Amount sanity + cap
       if (amount <= 0) {
+        // Don't reject hard, but mark it and fallback
+        validationIssues.push({
+          code: "INVALID_AMOUNT",
+          message: "Detected amount on receipt is invalid.",
+        });
+      }
+
+      const transactionDateIso = transactionDate
+        ? transactionDate.toISOString()
+        : null;
+
+      // Decide which issues are "blocking"
+      const hasCriticalIssue = validationIssues.some(
+        (issue) =>
+          issue.code === "RECEIPT_TOO_OLD" ||
+          issue.code === "RECEIPT_IN_FUTURE" ||
+          issue.code === "MERCHANT_NOT_BURGER_KING"
+      );
+
+      if (hasCriticalIssue) {
+        // Reject without awarding points or storing the receipt
         return {
           status: 400,
           jsonBody: {
-            error: "AMOUNT_INVALID",
-            message: "The amount on the receipt must be greater than 0.",
+            error: "RECEIPT_REJECTED",
+            reasons: validationIssues,
+            amount,
+            transactionDate: transactionDateIso,
+            rawDateText,
           },
         };
       }
 
-      const pointsBase = Math.min(amount, MAX_AMOUNT_FOR_POINTS);
-      const pointsEarned = Math.floor(pointsBase);
-
-      // 7) Daily per-user limit (soft but clear)
-      const receiptsToday = await countReceiptsForUserOnDay(userId, now);
-      if (receiptsToday >= DAILY_RECEIPT_LIMIT) {
-        return {
-          status: 400,
-          jsonBody: {
-            error: "DAILY_LIMIT_REACHED",
-            message:
-              "You’ve reached today’s limit of rewarded receipts. Try again tomorrow.",
-            dailyLimit: DAILY_RECEIPT_LIMIT,
-          },
-        };
+      // Non-critical issue: invalid amount → fallback to default
+      if (validationIssues.some((issue) => issue.code === "INVALID_AMOUNT")) {
+        amount = 75;
       }
 
-      // 8) Upload image to Blob storage
+      // 3) Upload image to Blob storage
       const blobUrl = await uploadReceiptImage(
         userId,
         fileName,
@@ -178,20 +180,18 @@ app.http("upload-receipt", {
         fileBase64
       );
 
-      // 9) Save receipt in DB with extra fields
+      // 4) Compute points
+      const pointsEarned = Math.floor(amount);
+
+      // 5) Save receipt in Cosmos
       const receipt = await createReceipt(
         userId,
         blobUrl,
         amount,
-        pointsEarned,
-        {
-          imageHash,
-          merchantName,
-          receiptDate: receiptDate.toISOString(),
-        }
+        pointsEarned
       );
 
-      // 10) Update user points
+      // 6) Update user points in Cosmos
       const updatedUser = await addPoints(userId, pointsEarned);
 
       return {
@@ -202,7 +202,8 @@ app.http("upload-receipt", {
           newBalance: updatedUser.points,
           receiptId: receipt.id,
           receiptBlobUrl: receipt.blobUrl,
-          receiptDate: receipt.receiptDate || receiptDate.toISOString(),
+          transactionDate: transactionDateIso,
+          rawDateText,
           merchantName,
         },
       };

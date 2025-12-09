@@ -1,342 +1,802 @@
-import React, { useEffect, useRef, useState } from "react";
+// customer-app/src/App.tsx
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { QRCodeCanvas } from "qrcode.react";
 
-type UploadResponse = {
+interface HealthCheckResponse {
+  status: string;
+  message: string;
+  timestamp: string;
+}
+
+interface BalanceResponse {
+  userId: string;
+  points: number;
+}
+
+interface RewardResponse {
+  rewardId: string;
+  rewardName: string;
+  qrPayload: string;
+  newBalance: number;
+  pointsCost: number;
+}
+
+interface ReceiptReason {
+  code: string;
+  message: string;
+}
+
+interface UploadReceiptSuccessResponse {
   userId: string;
   amount: number;
   pointsEarned: number;
   newBalance: number;
   receiptId: string;
   receiptBlobUrl: string;
-  receiptDate?: string;
-  merchantName?: string;
-};
-
-type ErrorResponse = {
-  error?: string;
-  message?: string;
-  [key: string]: unknown;
-};
-
-function formatDate(iso?: string) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString();
+  transactionDate?: string | null;
+  rawDateText?: string | null;
+  merchantName?: string | null;
 }
 
-async function fileToBase64(file: File): Promise<string> {
+interface UploadReceiptErrorResponse {
+  error: string;
+  reasons?: ReceiptReason[];
+  amount?: number;
+  transactionDate?: string | null;
+  rawDateText?: string | null;
+}
+
+type ClientClaim = {
+  typ: string;
+  val: string;
+};
+
+type ClientPrincipal = {
+  userId: string;
+  userDetails?: string | null;
+  identityProvider: string;
+  userRoles: string[];
+  claims?: ClientClaim[];
+};
+
+interface AuthMeResponse {
+  clientPrincipal?: ClientPrincipal | null;
+}
+
+function formatReceiptDateFromResponse(
+  transactionDate?: string | null,
+  rawDateText?: string | null
+): string | null {
+  if (transactionDate) {
+    const d = new Date(transactionDate);
+    if (!isNaN(d.getTime())) {
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const yyyy = d.getFullYear();
+      return `${dd}/${mm}/${yyyy}`;
+    }
+  }
+
+  if (rawDateText && rawDateText.trim().length > 0) {
+    return rawDateText.trim();
+  }
+
+  return null;
+}
+
+function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+
     reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(",")[1] || result;
-      resolve(base64);
+      const result = reader.result;
+      if (typeof result === "string") {
+        const base64 = result.split(",")[1] || "";
+        resolve(base64);
+      } else {
+        reject(new Error("Unexpected FileReader result type"));
+      }
     };
-    reader.onerror = reject;
+
+    reader.onerror = () => {
+      reject(reader.error ?? new Error("Error reading file"));
+    };
+
     reader.readAsDataURL(file);
   });
 }
 
-const App: React.FC = () => {
-  const [balance, setBalance] = useState<number | null>(null);
-  const [loadingBalance, setLoadingBalance] = useState(false);
+function App() {
+  const [apiMessage, setApiMessage] = useState<string | null>(null);
+  const [isCallingApi, setIsCallingApi] = useState(false);
+
+  const [points, setPoints] = useState<number | null>(null);
+  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
 
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
+  const [lastReceiptResult, setLastReceiptResult] = useState<string | null>(null);
+  const [lastReceiptError, setLastReceiptError] = useState<string | null>(null);
+
+  const [lastReward, setLastReward] = useState<RewardResponse | null>(null);
+  const [isRedeeming, setIsRedeeming] = useState(false);
+  const [redeemError, setRedeemError] = useState<string | null>(null);
+
+  const [userLabel, setUserLabel] = useState<string | null>(null);
+  const [loadingUser, setLoadingUser] = useState(true);
 
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => {
-    const loadBalance = async () => {
-      try {
-        setLoadingBalance(true);
-        const res = await fetch("/api/get-user-balance");
-        if (!res.ok) {
-          setBalance(null);
-          return;
-        }
-        const data = await res.json();
-        setBalance(typeof data.points === "number" ? data.points : null);
-      } catch {
-        setBalance(null);
-      } finally {
-        setLoadingBalance(false);
-      }
-    };
+  const loadUser = async () => {
+    try {
+      setLoadingUser(true);
 
-    loadBalance();
+      const res = await fetch("/.auth/me");
+      if (!res.ok) {
+        setUserLabel(null);
+        return;
+      }
+
+      const payload = (await res.json()) as AuthMeResponse;
+      const principal = payload?.clientPrincipal;
+
+      if (!principal) {
+        setUserLabel(null);
+        return;
+      }
+
+      const claims = principal.claims || [];
+      const findClaim = (types: string[]) =>
+        claims.find((c) => types.includes(c.typ)) || null;
+
+      const emailClaim =
+        findClaim(["emails"]) ||
+        findClaim(["email"]) ||
+        findClaim([
+          "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+        ]) ||
+        findClaim(["preferred_username"]);
+
+      let label: string | null = null;
+
+      if (emailClaim && emailClaim.val) {
+        label = emailClaim.val;
+      } else if (principal.userDetails) {
+        const details = principal.userDetails.toLowerCase();
+        if (details !== "unknown" && details !== "n/a") {
+          label = principal.userDetails;
+        }
+      } else if (principal.userId) {
+        label = principal.userId;
+      }
+
+      setUserLabel(label);
+    } catch (error) {
+      console.error("Error loading /.auth/me", error);
+      setUserLabel(null);
+    } finally {
+      setLoadingUser(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadUser();
   }, []);
 
-  const resetSelection = () => {
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
+  const callHealthCheck = async () => {
+    try {
+      setIsCallingApi(true);
+      setApiMessage(null);
+
+      const res = await fetch("/api/health-check?name=Customer");
+      if (!res.ok) {
+        throw new Error(`Health-check failed with status ${res.status}`);
+      }
+
+      const data = (await res.json()) as HealthCheckResponse;
+      setApiMessage(`${data.status} – ${data.message}`);
+    } catch (error) {
+      console.error(error);
+      setApiMessage("Error calling health-check API");
+    } finally {
+      setIsCallingApi(false);
     }
-    setSelectedFile(null);
-    setPreviewUrl(null);
   };
 
-  const handleCameraClick = () => {
-    resetSelection();
-    cameraInputRef.current?.click();
+  const fetchBalance = async () => {
+    try {
+      setIsLoadingBalance(true);
+
+      const res = await fetch("/api/get-user-balance");
+      if (!res.ok) {
+        if (res.status === 401) {
+          setPoints(null);
+          return;
+        }
+        throw new Error(`get-user-balance failed with status ${res.status}`);
+      }
+
+      const data = (await res.json()) as BalanceResponse;
+      setPoints(data.points);
+    } catch (error) {
+      console.error(error);
+      setPoints(null);
+    } finally {
+      setIsLoadingBalance(false);
+    }
   };
 
-  const handleGalleryClick = () => {
-    resetSelection();
-    galleryInputRef.current?.click();
-  };
-
-  const onFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleFileSelected = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
     if (!file) {
+      setSelectedFile(null);
+      setSelectedFileName(null);
       return;
     }
+
     setSelectedFile(file);
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
-    setSuccessMessage(null);
-    setErrorMessage(null);
+    setSelectedFileName(file.name);
+
+    setLastReceiptError(null);
+    setLastReceiptResult(null);
+
+    setPreviewUrl((prev) => {
+      if (prev) {
+        URL.revokeObjectURL(prev);
+      }
+      return URL.createObjectURL(file);
+    });
   };
 
-  const handleConfirmUpload = async () => {
-    if (!selectedFile) return;
+  const handleReceiptRejected = (data: UploadReceiptErrorResponse) => {
+    const reasons = data.reasons || [];
+    const formattedDate = formatReceiptDateFromResponse(
+      data.transactionDate ?? null,
+      data.rawDateText ?? null
+    );
 
-    setIsUploading(true);
-    setSuccessMessage(null);
-    setErrorMessage(null);
+    const messages: string[] = [];
+
+    if (reasons.some((r) => r.code === "RECEIPT_TOO_OLD")) {
+      if (formattedDate) {
+        messages.push(
+          `The ticket dated ${formattedDate} is older than 2 days, so it is not valid.`
+        );
+      } else {
+        messages.push("This ticket is older than 2 days, so it is not valid.");
+      }
+    }
+
+    if (reasons.some((r) => r.code === "RECEIPT_IN_FUTURE")) {
+      messages.push(
+        "The ticket date appears to be in the future. Please check the date on your receipt."
+      );
+    }
+
+    if (reasons.some((r) => r.code === "MERCHANT_NOT_BURGER_KING")) {
+      messages.push(
+        'We could not detect "Burger King" or "BK" on the receipt. Please use a Burger King receipt and ensure the logo/name is clearly visible.'
+      );
+    }
+
+    if (messages.length === 0) {
+      messages.push(
+        "Your receipt could not be accepted. Please try again with a clearer photo."
+      );
+    }
+
+    setLastReceiptError(messages.join(" "));
+    setLastReceiptResult(null);
+  };
+
+  const uploadRealReceipt = async () => {
+    if (!selectedFile) {
+      setLastReceiptError("Please take or choose a receipt photo first.");
+      return;
+    }
 
     try {
-      const fileBase64 = await fileToBase64(selectedFile);
+      setIsUploadingReceipt(true);
+      setLastReceiptError(null);
+      setLastReceiptResult(null);
+
+      const base64 = await fileToBase64(selectedFile);
 
       const res = await fetch("/api/upload-receipt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fileName: selectedFile.name,
-          contentType: selectedFile.type || "image/jpeg",
-          fileBase64,
+          contentType: selectedFile.type,
+          fileBase64: base64,
         }),
       });
 
-      const data: UploadResponse | ErrorResponse = await res.json();
+      const data = (await res.json()) as
+        | UploadReceiptSuccessResponse
+        | UploadReceiptErrorResponse;
 
       if (!res.ok) {
-        const errMsg =
-          (data as ErrorResponse).message ||
-          "The receipt could not be processed. Please try again.";
-        setErrorMessage(errMsg);
+        const errData = data as UploadReceiptErrorResponse;
+
+        if (res.status === 401 || errData.error === "UNAUTHENTICATED") {
+          setLastReceiptError("Please sign in before uploading a receipt.");
+          return;
+        }
+
+        if (errData.error === "RECEIPT_REJECTED") {
+          handleReceiptRejected(errData);
+          return;
+        }
+
+        setLastReceiptError("Error while uploading the receipt.");
         return;
       }
 
-      const ok = data as UploadResponse;
+      const success = data as UploadReceiptSuccessResponse;
+      setPoints(success.newBalance);
 
-      setBalance(ok.newBalance);
+      const formattedDate = formatReceiptDateFromResponse(
+        success.transactionDate ?? null,
+        success.rawDateText ?? null
+      );
 
-      const dateStr = formatDate(ok.receiptDate);
-      const amountStr = ok.amount.toFixed(2);
+      const amountNum = success.amount;
+      const pointsEarned = success.pointsEarned;
 
-      const msg = dateStr
-        ? `Your receipt of ${amountStr} € dated ${dateStr} has been scanned. You earned ${ok.pointsEarned} points.`
-        : `Your receipt of ${amountStr} € has been scanned. You earned ${ok.pointsEarned} points.`;
+      let msg: string;
+      if (formattedDate) {
+        msg = `Receipt dated ${formattedDate} with total ${amountNum.toFixed(
+          2
+        )} accepted. You earned ${pointsEarned} points.`;
+      } else {
+        msg = `Receipt accepted. You earned ${pointsEarned} points on an amount of ${amountNum.toFixed(
+          2
+        )}.`;
+      }
 
-      setSuccessMessage(msg);
-      resetSelection();
-    } catch (e) {
-      console.error(e);
-      setErrorMessage("Unexpected error, please try again.");
+      setLastReceiptResult(msg);
+    } catch (error) {
+      console.error(error);
+      setLastReceiptError("Network error while uploading the receipt.");
     } finally {
-      setIsUploading(false);
+      setIsUploadingReceipt(false);
     }
   };
 
-  const handleRetake = () => {
-    resetSelection();
+  const redeemForReward = async () => {
+    try {
+      setIsRedeeming(true);
+      setRedeemError(null);
+
+      const res = await fetch("/api/redeem-reward", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rewardName: "Free Sundae",
+          pointsCost: 100,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.error === "NOT_ENOUGH_POINTS") {
+          setRedeemError("Not enough points (need 100).");
+        } else if (data.error === "UNAUTHENTICATED") {
+          setRedeemError("Please sign in first.");
+        } else {
+          setRedeemError("Error while creating reward.");
+        }
+        return;
+      }
+
+      setPoints(data.newBalance);
+      setLastReward(data as RewardResponse);
+    } catch (err) {
+      console.error(err);
+      setRedeemError("Network error.");
+    } finally {
+      setIsRedeeming(false);
+    }
   };
+
+  const isSignedIn = !!userLabel;
 
   return (
     <div
       style={{
-        maxWidth: "480px",
-        margin: "0 auto",
-        padding: "1.5rem",
-        fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        minHeight: "100vh",
+        background: "#f5f5f5",
+        fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
       }}
     >
-      <h1 style={{ fontSize: "1.6rem", marginBottom: "0.5rem" }}>BK Loyalty</h1>
-
-      <p style={{ marginBottom: "1.5rem", color: "#555" }}>
-        {loadingBalance
-          ? "Loading your points..."
-          : balance !== null
-          ? `You have ${balance} points.`
-          : "Sign in to see your points."}
-      </p>
-
-      <section
+      <main
         style={{
-          border: "1px solid #eee",
-          borderRadius: "0.75rem",
-          padding: "1rem",
-          marginBottom: "1rem",
-          boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
+          maxWidth: 900,
+          margin: "0 auto",
+          padding: "2rem 1.5rem 3rem",
         }}
       >
-        <h2 style={{ fontSize: "1.2rem", marginBottom: "0.5rem" }}>
-          Upload your receipt
-        </h2>
+        {/* HEADER WITH SIGN-IN / SIGN-OUT */}
+        <header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "2rem",
+          }}
+        >
+          <div>
+            <h1 style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>
+              BK Loyalty – Customer Portal
+            </h1>
+            <p style={{ color: "#555" }}>
+              Upload your Burger King receipt to earn points and unlock rewards.
+            </p>
+          </div>
 
-        {/* Hidden inputs */}
-        <input
-          ref={cameraInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          style={{ display: "none" }}
-          onChange={onFileSelected}
-        />
-        <input
-          ref={galleryInputRef}
-          type="file"
-          accept="image/*"
-          style={{ display: "none" }}
-          onChange={onFileSelected}
-        />
-
-        {/* Buttons */}
-        <div style={{ display: "flex", gap: "0.75rem", marginBottom: "0.5rem" }}>
-          <button
-            type="button"
-            onClick={handleCameraClick}
+          <div
             style={{
-              flex: 1,
-              padding: "0.6rem 0.8rem",
-              borderRadius: "999px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-end",
+              gap: "0.25rem",
+            }}
+          >
+            {loadingUser ? (
+              <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+                Checking session…
+              </span>
+            ) : isSignedIn ? (
+              <span style={{ fontSize: "0.9rem", color: "#4b5563" }}>
+                Signed in as <strong>{userLabel}</strong>
+              </span>
+            ) : (
+              <span style={{ fontSize: "0.9rem", color: "#6b7280" }}>
+                Not signed in
+              </span>
+            )}
+            <a
+              href={isSignedIn ? "/.auth/logout" : "/.auth/login/ciam"}
+              style={{
+                padding: "0.35rem 0.8rem",
+                borderRadius: "999px",
+                border: "1px solid #e5e7eb",
+                textDecoration: "none",
+                fontSize: "0.85rem",
+                background: "#ffffff",
+              }}
+            >
+              {isSignedIn ? "Sign out" : "Sign in"}
+            </a>
+          </div>
+        </header>
+
+        {/* Section 1 – API connectivity test */}
+        <section
+          style={{
+            background: "#fff",
+            padding: "1.5rem",
+            borderRadius: "0.75rem",
+            boxShadow: "0 4px 10px rgba(0, 0, 0, 0.04)",
+            marginBottom: "1.5rem",
+          }}
+        >
+          <h2 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>
+            Backend status
+          </h2>
+          <p style={{ marginBottom: "0.75rem", color: "#555" }}>
+            Check that the API (Azure Functions) is reachable from this app.
+          </p>
+          <button
+            onClick={callHealthCheck}
+            disabled={isCallingApi}
+            style={{
+              padding: "0.5rem 1rem",
+              borderRadius: "0.5rem",
               border: "none",
               cursor: "pointer",
               fontWeight: 600,
-              background: "#f97316",
-              color: "white",
+              background: "#5a2dfc",
+              color: "#fff",
             }}
           >
-            Take a photo
+            {isCallingApi ? "Checking…" : "Call health-check"}
           </button>
-          <button
-            type="button"
-            onClick={handleGalleryClick}
-            style={{
-              flex: 1,
-              padding: "0.6rem 0.8rem",
-              borderRadius: "999px",
-              border: "1px solid #ddd",
-              cursor: "pointer",
-              fontWeight: 500,
-              background: "#fff",
-            }}
-          >
-            Choose from gallery
-          </button>
-        </div>
+          {apiMessage && (
+            <p style={{ marginTop: "0.75rem", color: "#111827" }}>
+              {apiMessage}
+            </p>
+          )}
+        </section>
 
-        {/* Note below the buttons */}
-        <p
+        {/* Section 2 – Points & Rewards */}
+        <section
           style={{
-            fontStyle: "italic",
-            fontSize: "0.9rem",
-            color: "#666",
-            marginBottom: "0.75rem",
+            background: "#fff",
+            padding: "1.5rem",
+            borderRadius: "0.75rem",
+            boxShadow: "0 4px 10px rgba(0, 0, 0, 0.04)",
+            marginBottom: "1.5rem",
           }}
         >
-          Please make sure that the words “Burger King”, the amount and the date of
-          the receipt are clearly visible in the photo.
-        </p>
+          <h2 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>
+            Your points & rewards
+          </h2>
 
-        {/* Preview + confirm / retake */}
-        {previewUrl && (
-          <div
-            style={{
-              marginTop: "0.5rem",
-              borderRadius: "0.75rem",
-              border: "1px solid #eee",
-              padding: "0.5rem",
-            }}
-          >
-            <img
-              src={previewUrl}
-              alt="Receipt preview"
+          {/* Balance */}
+          <div style={{ marginBottom: "1rem" }}>
+            <p style={{ marginBottom: "0.5rem", color: "#555" }}>
+              Current points:
+            </p>
+            <div
               style={{
-                maxWidth: "100%",
-                borderRadius: "0.5rem",
-                marginBottom: "0.5rem",
+                display: "flex",
+                gap: "0.75rem",
+                alignItems: "center",
+                flexWrap: "wrap",
               }}
-            />
-            <div style={{ display: "flex", gap: "0.5rem" }}>
+            >
               <button
-                type="button"
-                onClick={handleConfirmUpload}
-                disabled={isUploading}
+                onClick={fetchBalance}
+                disabled={isLoadingBalance}
                 style={{
-                  flex: 1,
-                  padding: "0.5rem",
-                  borderRadius: "999px",
+                  padding: "0.5rem 1rem",
+                  borderRadius: "0.5rem",
                   border: "none",
                   cursor: "pointer",
-                  background: isUploading ? "#fbbf24" : "#22c55e",
-                  color: "white",
                   fontWeight: 600,
+                  background: "#0ea5e9",
+                  color: "#fff",
                 }}
               >
-                {isUploading ? "Uploading..." : "Confirm upload"}
+                {isLoadingBalance ? "Loading..." : "Load my points"}
               </button>
-              <button
-                type="button"
-                onClick={handleRetake}
-                disabled={isUploading}
-                style={{
-                  flex: 1,
-                  padding: "0.5rem",
-                  borderRadius: "999px",
-                  border: "1px solid #ddd",
-                  cursor: "pointer",
-                  background: "#fff",
-                }}
-              >
-                Retake
-              </button>
+              <span style={{ fontSize: "1.1rem", color: "#111827" }}>
+                {points === null
+                  ? isSignedIn
+                    ? "—"
+                    : "Please sign in to see your balance."
+                  : `${points} pts`}
+              </span>
             </div>
           </div>
-        )}
 
-        {/* Messages */}
-        {successMessage && (
-          <p
+          {/* Redeem reward */}
+          <div>
+            <p style={{ marginBottom: "0.5rem", color: "#555" }}>
+              Redeem 100 points for a free Sundae.
+            </p>
+            <button
+              onClick={redeemForReward}
+              disabled={isRedeeming}
+              style={{
+                padding: "0.5rem 1rem",
+                borderRadius: "0.5rem",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: 600,
+                background: "#f97316",
+                color: "#fff",
+              }}
+            >
+              {isRedeeming
+                ? "Creating reward..."
+                : "Redeem 100 points for Free Sundae"}
+            </button>
+            {redeemError && (
+              <p style={{ marginTop: "0.5rem", color: "#b91c1c" }}>
+                {redeemError}
+              </p>
+            )}
+          </div>
+
+          {lastReward && (
+            <div
+              style={{
+                marginTop: "1rem",
+                display: "flex",
+                gap: "1rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <p
+                  style={{
+                    marginBottom: "0.5rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  Your reward QR:
+                </p>
+                <QRCodeCanvas value={lastReward.qrPayload} size={160} />
+              </div>
+              <div style={{ fontSize: "0.9rem", color: "#374151" }}>
+                <p>
+                  Reward: <strong>{lastReward.rewardName}</strong>
+                </p>
+                <p>
+                  Code: <strong>{lastReward.rewardId}</strong>
+                </p>
+                <p style={{ marginTop: "0.5rem" }}>
+                  Show this QR (or code) to BK staff. Their app will scan / type
+                  it and validate the reward.
+                </p>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Section 3 – Receipt upload */}
+        <section
+          style={{
+            background: "#fff",
+            padding: "1.5rem",
+            borderRadius: "0.75rem",
+            boxShadow: "0 4px 10px rgba(0, 0, 0, 0.04)",
+          }}
+        >
+          <h2 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>
+            Upload your receipt
+          </h2>
+          <p style={{ marginBottom: "0.75rem", color: "#555" }}>
+            This sends the image to the backend, stores it in Blob Storage,
+            saves a receipt document in Cosmos DB, and uses Document Intelligence
+            to detect the real total amount and the date.
+          </p>
+
+          <div
             style={{
-              marginTop: "0.75rem",
-              color: "#16a34a",
-              fontSize: "0.95rem",
+              display: "flex",
+              gap: "0.75rem",
+              flexWrap: "wrap",
+              alignItems: "center",
+              marginBottom: "0.5rem",
             }}
           >
-            {successMessage}
-          </p>
-        )}
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              style={{
+                padding: "0.5rem 1rem",
+                borderRadius: "0.5rem",
+                border: "1px dashed #9ca3af",
+                background: "#f9fafb",
+                cursor: "pointer",
+              }}
+            >
+              Take photo with camera
+            </button>
 
-        {errorMessage && (
+            <button
+              type="button"
+              onClick={() => galleryInputRef.current?.click()}
+              style={{
+                padding: "0.5rem 1rem",
+                borderRadius: "0.5rem",
+                border: "1px dashed #9ca3af",
+                background: "#f9fafb",
+                cursor: "pointer",
+              }}
+            >
+              Choose from gallery
+            </button>
+
+            {/* hidden inputs */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleFileSelected}
+              style={{ display: "none" }}
+            />
+            <input
+              ref={galleryInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileSelected}
+              style={{ display: "none" }}
+            />
+          </div>
+
           <p
             style={{
-              marginTop: "0.75rem",
-              color: "#dc2626",
-              fontSize: "0.95rem",
+              marginTop: "0.25rem",
+              marginBottom: "0.75rem",
+              fontSize: "0.85rem",
+              fontStyle: "italic",
+              color: "#6b7280",
             }}
           >
-            {errorMessage}
+            Make sure the words &quot;Burger King&quot; or &quot;BK&quot;, the
+            total amount and the date are clearly visible on the picture of the
+            receipt.
           </p>
-        )}
-      </section>
+
+          {previewUrl && (
+            <div
+              style={{
+                marginBottom: "0.75rem",
+                padding: "0.75rem",
+                borderRadius: "0.5rem",
+                background: "#f9fafb",
+                display: "flex",
+                gap: "0.75rem",
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <p
+                  style={{
+                    marginBottom: "0.25rem",
+                    fontSize: "0.9rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  Selected receipt:
+                </p>
+                <img
+                  src={previewUrl}
+                  alt="Selected receipt"
+                  style={{
+                    maxWidth: "200px",
+                    maxHeight: "200px",
+                    objectFit: "contain",
+                    borderRadius: "0.5rem",
+                    border: "1px solid #e5e7eb",
+                  }}
+                />
+              </div>
+              <div style={{ fontSize: "0.85rem", color: "#4b5563" }}>
+                <p>
+                  <strong>File:</strong> {selectedFileName}
+                </p>
+                <p style={{ marginTop: "0.25rem" }}>
+                  If the photo is not clear, you can take or choose another one
+                  before uploading.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <button
+            onClick={uploadRealReceipt}
+            disabled={isUploadingReceipt || !selectedFile}
+            style={{
+              padding: "0.5rem 1rem",
+              borderRadius: "0.5rem",
+              border: "none",
+              cursor: selectedFile ? "pointer" : "not-allowed",
+              fontWeight: 600,
+              background: selectedFile ? "#16a34a" : "#9ca3af",
+              color: "#fff",
+            }}
+          >
+            {isUploadingReceipt ? "Uploading…" : "Upload this receipt"}
+          </button>
+
+          {lastReceiptError && (
+            <p style={{ marginTop: "0.5rem", color: "#b91c1c" }}>
+              {lastReceiptError}
+            </p>
+          )}
+
+          {lastReceiptResult && (
+            <p style={{ marginTop: "0.5rem", color: "#166534" }}>
+              {lastReceiptResult}
+            </p>
+          )}
+        </section>
+      </main>
     </div>
   );
-};
+}
 
 export default App;
