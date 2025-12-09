@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Html5QrcodeScanner } from "html5-qrcode";
 
 interface ValidateResponse {
   valid: boolean;
@@ -16,8 +17,13 @@ function App() {
   const [result, setResult] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState(false);
 
+  // QR scanner state
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+
   // ------- AUTH: load current user from /.auth/me -------
-  const loadUser = async () => {
+  async function loadUser() {
     try {
       const res = await fetch("/.auth/me");
       if (!res.ok) {
@@ -31,14 +37,15 @@ function App() {
       console.error(error);
       setUserEmail(null);
     }
-  };
+  }
 
   useEffect(() => {
-    loadUser();
+    void loadUser();
   }, []);
 
-  const validateReward = async () => {
-    const trimmed = rewardCode.trim();
+  // ------- Core validate function, can be called from button OR QR scan -------
+  async function validateReward(codeFromScan?: string) {
+    const trimmed = (codeFromScan ?? rewardCode).trim();
     if (!trimmed) {
       setResult("Please enter a reward code.");
       return;
@@ -58,7 +65,7 @@ function App() {
 
       if (res.ok && data.valid) {
         setResult(
-          `✅ VALID – Reward: ${data.rewardName}. Apply the benefit and mark as used.`
+          `✅ VALID – Reward: ${data.rewardName ?? "unknown"}. Apply the benefit and mark as used.`
         );
       } else {
         const reason = data.reason || "INVALID";
@@ -70,7 +77,90 @@ function App() {
     } finally {
       setIsChecking(false);
     }
-  };
+  }
+
+  // ------- QR result handlers -------
+  function handleScanResult(text: string | null) {
+    if (!text) return;
+
+    let code = text.trim();
+
+    // QR payload is like "reward:<rewardId>" – strip the prefix if present
+    if (code.toLowerCase().startsWith("reward:")) {
+      code = code.slice("reward:".length);
+    }
+
+    // Show it in the input so staff sees what was scanned
+    setRewardCode(code);
+    setIsScannerOpen(false);
+    setScannerError(null);
+
+    // Auto-validate as soon as we have a code
+    void validateReward(code);
+  }
+
+  function handleScanError(error: unknown) {
+    // TypeScript is happy because we explicitly typed error: unknown
+    console.debug("QR scan error:", error);
+  }
+
+  // ------- Create / destroy Html5QrcodeScanner when toggling -------
+  useEffect(() => {
+    if (!isScannerOpen) {
+      // Ensure previous scanner is cleared
+      if (scannerRef.current) {
+        scannerRef.current
+          .clear()
+          .catch((err: unknown) => console.error("Failed to clear scanner", err));
+        scannerRef.current = null;
+      }
+      return;
+    }
+
+    setScannerError(null);
+
+    const scanner = new Html5QrcodeScanner(
+      "qr-reader", // must match the div id below
+      {
+        fps: 10,
+        qrbox: 250,
+      },
+      false
+    );
+
+    scannerRef.current = scanner;
+
+    scanner.render(
+      (decodedText: string) => {
+        handleScanResult(decodedText);
+        // Stop scanning once we have a result
+        scanner
+          .clear()
+          .then(() => {
+            scannerRef.current = null;
+          })
+          .catch((err: unknown) =>
+            console.error("Failed to clear scanner after success", err)
+          );
+        setIsScannerOpen(false);
+      },
+      (err: unknown) => {
+        handleScanError(err);
+        // You can set a user-visible error only on "hard" errors if you want
+      }
+    );
+
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current
+          .clear()
+          .catch((err: unknown) =>
+            console.error("Failed to clear scanner on unmount", err)
+          );
+        scannerRef.current = null;
+      }
+    };
+  }, [isScannerOpen]);
 
   return (
     <div
@@ -145,6 +235,52 @@ function App() {
             boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
           }}
         >
+          {/* QR scanner toggle + view */}
+          <div
+            style={{
+              marginBottom: "1rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.75rem",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setIsScannerOpen((prev) => !prev)}
+              style={{
+                alignSelf: "flex-start",
+                padding: "0.5rem 1rem",
+                borderRadius: "999px",
+                border: "1px solid #4b5563",
+                background: "#020617",
+                color: "#e5e7eb",
+                cursor: "pointer",
+                fontWeight: 500,
+              }}
+            >
+              {isScannerOpen ? "Close QR scanner" : "Scan QR code"}
+            </button>
+
+            {isScannerOpen && (
+              <div
+                id="qr-reader"
+                style={{
+                  width: "100%",
+                  maxWidth: 400,
+                  borderRadius: "0.75rem",
+                  overflow: "hidden",
+                  border: "1px solid #4b5563",
+                }}
+              />
+            )}
+
+            {scannerError && (
+              <p style={{ color: "#f97373", fontSize: "0.9rem" }}>
+                {scannerError}
+              </p>
+            )}
+          </div>
+
           <label
             style={{
               display: "block",
@@ -170,7 +306,7 @@ function App() {
           />
 
           <button
-            onClick={validateReward}
+            onClick={() => void validateReward()}
             disabled={isChecking}
             style={{
               padding: "0.5rem 1rem",
