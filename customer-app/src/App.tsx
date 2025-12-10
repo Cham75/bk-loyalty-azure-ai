@@ -619,7 +619,7 @@ function App() {
             padding: "2.5rem 1.5rem 3.5rem",
           }}
         >
-          {/* Top bar with small sign-in link */}
+          {/* Top bar with small log in button */}
           <header
             style={{
               display: "flex",
@@ -674,7 +674,7 @@ function App() {
                 fontWeight: 500,
               }}
             >
-              Log in
+              Log in / Sign up
             </a>
           </header>
 
@@ -714,7 +714,7 @@ function App() {
                 <strong>points and rewards</strong>.
               </p>
 
-              {/* Main CTAs */}
+              {/* Single main CTA */}
               <div
                 style={{
                   display: "flex",
@@ -735,22 +735,7 @@ function App() {
                     fontSize: "0.95rem",
                   }}
                 >
-                  Create my BK Loyalty account
-                </a>
-                <a
-                  href="/.auth/login/ciam"
-                  style={{
-                    padding: "0.75rem 1.4rem",
-                    borderRadius: "999px",
-                    background: "rgba(249,250,251,0.9)",
-                    color: "#111827",
-                    textDecoration: "none",
-                    fontWeight: 500,
-                    fontSize: "0.95rem",
-                    border: "1px solid rgba(17,24,39,0.1)",
-                  }}
-                >
-                  I already have an account
+                  Log in or create my BK Loyalty account
                 </a>
               </div>
 
@@ -825,8 +810,8 @@ function App() {
                     1
                   </span>
                   <span>
-                    Create your BK Loyalty account with your email in a few
-                    seconds.
+                    Log in or create your BK Loyalty account with your email in a
+                    few seconds.
                   </span>
                 </li>
                 <li
@@ -974,7 +959,7 @@ function App() {
                 background: "#ffffff",
               }}
             >
-              {isSignedIn ? "Sign out" : "Sign in"}
+              {isSignedIn ? "Sign out" : "Log in / Sign up"}
             </a>
           </div>
         </header>
