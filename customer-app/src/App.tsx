@@ -95,14 +95,41 @@ function formatReceiptDateFromResponse(
   return null;
 }
 
-function formatSimpleDate(iso?: string | null): string | null {
+function formatVerboseDate(iso?: string | null): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  return `${dd}/${mm}/${yyyy}`;
+
+  const day = d.getDate();
+  const monthIndex = d.getMonth();
+  const year = d.getFullYear();
+
+  const monthNames = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+
+  const getSuffix = (n: number): string => {
+    if (n % 10 === 1 && n % 100 !== 11) return "st";
+    if (n % 10 === 2 && n % 100 !== 12) return "nd";
+    if (n % 10 === 3 && n % 100 !== 13) return "rd";
+    return "th";
+  };
+
+  const suffix = getSuffix(day);
+  const monthName = monthNames[monthIndex] ?? "";
+
+  return `${day}${suffix} of ${monthName} ${year}`;
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -157,6 +184,7 @@ function App() {
   const [rewardHistory, setRewardHistory] = useState<RewardHistoryItem[]>([]);
   const [isLoadingRewards, setIsLoadingRewards] = useState(false);
   const [rewardsError, setRewardsError] = useState<string | null>(null);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   // gallery input
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
@@ -1402,7 +1430,7 @@ function App() {
             </div>
           )}
 
-          {/* Rewards history */}
+          {/* Rewards history (collapsible) */}
           <div
             style={{
               marginTop: "1.5rem",
@@ -1416,7 +1444,6 @@ function App() {
                 alignItems: "center",
                 justifyContent: "space-between",
                 gap: "0.75rem",
-                marginBottom: "0.75rem",
                 flexWrap: "wrap",
               }}
             >
@@ -1441,108 +1468,148 @@ function App() {
               </div>
               <button
                 type="button"
-                onClick={() => void loadRewardHistory()}
-                disabled={isLoadingRewards}
+                onClick={() => setIsHistoryOpen((prev) => !prev)}
                 style={{
                   padding: "0.4rem 0.9rem",
                   borderRadius: "999px",
                   border: "1px solid #e5e7eb",
                   background: "#fff",
                   fontSize: "0.8rem",
-                  cursor: isLoadingRewards ? "wait" : "pointer",
+                  cursor: "pointer",
                 }}
               >
-                {isLoadingRewards ? "Refreshing…" : "Refresh history"}
+                {isHistoryOpen ? "Hide history" : "Click to view history"}
               </button>
             </div>
 
-            {rewardsError && (
-              <p style={{ color: "#b91c1c", fontSize: "0.85rem" }}>
-                {rewardsError}
-              </p>
-            )}
+            {isHistoryOpen && (
+              <>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    marginTop: "0.75rem",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => void loadRewardHistory()}
+                    disabled={isLoadingRewards}
+                    style={{
+                      padding: "0.35rem 0.8rem",
+                      borderRadius: "999px",
+                      border: "1px solid #e5e7eb",
+                      background: "#fff",
+                      fontSize: "0.8rem",
+                      cursor: isLoadingRewards ? "wait" : "pointer",
+                    }}
+                  >
+                    {isLoadingRewards ? "Refreshing…" : "Refresh history"}
+                  </button>
+                </div>
 
-            {!isLoadingRewards && rewardHistory.length === 0 && !rewardsError && (
-              <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>
-                You don&apos;t have any rewards yet. Scan receipts to earn
-                points and redeem them above.
-              </p>
-            )}
+                {rewardsError && (
+                  <p style={{ color: "#b91c1c", fontSize: "0.85rem" }}>
+                    {rewardsError}
+                  </p>
+                )}
 
-            {rewardHistory.length > 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "0.75rem",
-                }}
-              >
-                {rewardHistory.map((reward) => {
-                  const created = formatSimpleDate(reward.createdAt ?? null);
-                  const redeemed = formatSimpleDate(reward.redeemedAt ?? null);
-                  const qrValue = `reward:${reward.id}`;
-
-                  return (
-                    <div
-                      key={reward.id}
+                {!isLoadingRewards &&
+                  rewardHistory.length === 0 &&
+                  !rewardsError && (
+                    <p
                       style={{
-                        display: "flex",
-                        gap: "0.75rem",
-                        alignItems: "flex-start",
-                        padding: "0.75rem 0.9rem",
-                        borderRadius: "0.75rem",
-                        background: "#f9fafb",
-                        border: "1px solid #e5e7eb",
-                        flexWrap: "wrap",
+                        fontSize: "0.85rem",
+                        color: "#6b7280",
                       }}
                     >
-                      <div>
-                        <QRCodeCanvas value={qrValue} size={80} />
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "0.85rem",
-                          color: "#374151",
-                          flex: 1,
-                          minWidth: 0,
-                        }}
-                      >
-                        <p>
-                          <strong>{reward.name}</strong>
-                          {reward.pointsCost !== null && (
-                            <>
-                              {" "}
-                              – {reward.pointsCost} pts
-                            </>
-                          )}
-                        </p>
-                        {reward.tier && (
-                          <p
+                      You don&apos;t have any rewards yet. Scan receipts to earn
+                      points and redeem them above.
+                    </p>
+                  )}
+
+                {rewardHistory.length > 0 && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.75rem",
+                    }}
+                  >
+                    {rewardHistory.map((reward) => {
+                      const createdLabel = formatVerboseDate(
+                        reward.createdAt ?? null
+                      );
+                      const redeemedLabel = formatVerboseDate(
+                        reward.redeemedAt ?? null
+                      );
+                      const qrValue = `reward:${reward.id}`;
+
+                      return (
+                        <div
+                          key={reward.id}
+                          style={{
+                            display: "flex",
+                            gap: "0.75rem",
+                            alignItems: "flex-start",
+                            padding: "0.75rem 0.9rem",
+                            borderRadius: "0.75rem",
+                            background: "#f9fafb",
+                            border: "1px solid #e5e7eb",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <div>
+                            <QRCodeCanvas value={qrValue} size={80} />
+                          </div>
+                          <div
                             style={{
-                              marginTop: "0.15rem",
-                              color: "#6b7280",
-                              fontSize: "0.8rem",
+                              fontSize: "0.85rem",
+                              color: "#374151",
+                              flex: 1,
+                              minWidth: 0,
                             }}
                           >
-                            Tier: {reward.tier}
-                          </p>
-                        )}
-                        <p style={{ marginTop: "0.25rem" }}>
-                          Created: {created ?? "—"}
-                        </p>
-                        <p style={{ marginTop: "0.25rem" }}>
-                          Status:{" "}
-                          {reward.redeemed
-                            ? redeemed
-                              ? `Used on ${redeemed}`
-                              : "Used"
-                            : "Not used yet"}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                            <p>
+                              <strong>{reward.name}</strong>
+                              {reward.pointsCost !== null && (
+                                <>
+                                  {" "}
+                                  – {reward.pointsCost} pts
+                                </>
+                              )}
+                            </p>
+                            {reward.tier && (
+                              <p
+                                style={{
+                                  marginTop: "0.15rem",
+                                  color: "#6b7280",
+                                  fontSize: "0.8rem",
+                                }}
+                              >
+                                Tier: {reward.tier}
+                              </p>
+                            )}
+                            <p style={{ marginTop: "0.25rem" }}>
+                              Created:{" "}
+                              {createdLabel ?? "Creation date unknown"}
+                            </p>
+                            <p style={{ marginTop: "0.25rem" }}>
+                              Status:{" "}
+                              {reward.redeemed
+                                ? redeemedLabel
+                                  ? `Used the ${redeemedLabel}`
+                                  : "Used"
+                                : "Not used yet"}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </section>
