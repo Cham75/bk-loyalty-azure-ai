@@ -130,9 +130,14 @@ function App() {
   const [isRedeeming, setIsRedeeming] = useState(false);
   const [redeemError, setRedeemError] = useState<string | null>(null);
 
-  // file inputs
-  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  // gallery input
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
+
+  // camera state
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
 
   const isSignedIn = !!userLabel;
 
@@ -244,7 +249,7 @@ function App() {
     }
   };
 
-  // File selection
+  // File selection from gallery
   const handleFileSelected = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
     if (!file) {
@@ -269,6 +274,125 @@ function App() {
       }
       return URL.createObjectURL(file);
     });
+  };
+
+  // Camera: start / stop stream when toggling isCameraOpen
+  useEffect(() => {
+    async function startCamera() {
+      if (!isCameraOpen) {
+        // stop any existing stream
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+          mediaStreamRef.current = null;
+        }
+        if (videoRef.current) {
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-ignore
+          videoRef.current.srcObject = null;
+        }
+        return;
+      }
+
+      try {
+        setCameraError(null);
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          setCameraError("Camera not supported on this device/browser.");
+          return;
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+        });
+
+        mediaStreamRef.current = stream;
+        if (videoRef.current) {
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-ignore
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play().catch(() => {});
+        }
+      } catch (err) {
+        console.error("Error accessing camera", err);
+        setCameraError(
+          "Unable to access camera. Please allow camera access in your browser settings."
+        );
+      }
+    }
+
+    void startCamera();
+
+    return () => {
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+        mediaStreamRef.current = null;
+      }
+      if (videoRef.current) {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        videoRef.current.srcObject = null;
+      }
+    };
+  }, [isCameraOpen]);
+
+  const closeCamera = () => {
+    setIsCameraOpen(false);
+  };
+
+  const takePhotoFromCamera = () => {
+    const video = videoRef.current;
+    if (!video) {
+      setCameraError("Camera is not ready yet.");
+      return;
+    }
+
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
+
+    if (!videoWidth || !videoHeight) {
+      setCameraError(
+        "Camera is still starting. Please wait a second and try again."
+      );
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = videoWidth;
+    canvas.height = videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      setCameraError("Unable to capture image.");
+      return;
+    }
+
+    ctx.drawImage(video, 0, 0, videoWidth, videoHeight);
+
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setCameraError("Unable to capture image.");
+          return;
+        }
+
+        const file = new File([blob], "receipt-camera.jpg", {
+          type: blob.type || "image/jpeg",
+        });
+
+        setSelectedFile(file);
+        setSelectedFileName(file.name);
+        setLastReceiptError(null);
+        setLastReceiptResult(null);
+
+        setPreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return URL.createObjectURL(file);
+        });
+
+        setIsCameraOpen(false);
+      },
+      "image/jpeg",
+      0.9
+    );
   };
 
   // Handle receipt rejected
@@ -666,6 +790,7 @@ function App() {
             to detect the total amount and the date.
           </p>
 
+          {/* Camera + gallery buttons */}
           <div
             style={{
               display: "flex",
@@ -677,7 +802,7 @@ function App() {
           >
             <button
               type="button"
-              onClick={() => cameraInputRef.current?.click()}
+              onClick={() => setIsCameraOpen(true)}
               style={{
                 padding: "0.5rem 1rem",
                 borderRadius: "0.5rem",
@@ -703,15 +828,7 @@ function App() {
               Choose from gallery
             </button>
 
-            {/* hidden inputs */}
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handleFileSelected}
-              style={{ display: "none" }}
-            />
+            {/* hidden input for gallery */}
             <input
               ref={galleryInputRef}
               type="file"
@@ -735,6 +852,102 @@ function App() {
             receipt.
           </p>
 
+          {/* Camera overlay */}
+          {isCameraOpen && (
+            <div
+              style={{
+                marginBottom: "0.75rem",
+                padding: "0.75rem",
+                borderRadius: "0.5rem",
+                background: "#000",
+                color: "#e5e7eb",
+              }}
+            >
+              <p
+                style={{
+                  marginBottom: "0.5rem",
+                  fontSize: "0.9rem",
+                  fontWeight: 600,
+                }}
+              >
+                Camera view
+              </p>
+              <div
+                style={{
+                  position: "relative",
+                  width: "100%",
+                  maxHeight: "60vh",
+                  overflow: "hidden",
+                  borderRadius: "0.75rem",
+                  background: "#111827",
+                }}
+              >
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                  }}
+                />
+              </div>
+              {cameraError && (
+                <p
+                  style={{
+                    marginTop: "0.5rem",
+                    color: "#fecaca",
+                    fontSize: "0.85rem",
+                  }}
+                >
+                  {cameraError}
+                </p>
+              )}
+              <div
+                style={{
+                  display: "flex",
+                  gap: "0.5rem",
+                  marginTop: "0.75rem",
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={takePhotoFromCamera}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    borderRadius: "999px",
+                    border: "none",
+                    background: "#22c55e",
+                    color: "#022c22",
+                    cursor: "pointer",
+                    fontWeight: 600,
+                  }}
+                >
+                  Capture photo
+                </button>
+                <button
+                  type="button"
+                  onClick={closeCamera}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    borderRadius: "999px",
+                    border: "1px solid #6b7280",
+                    background: "#020617",
+                    color: "#e5e7eb",
+                    cursor: "pointer",
+                    fontWeight: 500,
+                  }}
+                >
+                  Close camera
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Preview */}
           {previewUrl && (
             <div
               style={{
@@ -775,8 +988,8 @@ function App() {
                   <strong>File:</strong> {selectedFileName}
                 </p>
                 <p style={{ marginTop: "0.25rem" }}>
-                  If the photo is not clear, you can retake it with the camera or
-                  choose another one from your gallery.
+                  If the photo is not clear, you can take another one with the
+                  camera or choose a different picture from your gallery.
                 </p>
                 <div
                   style={{
@@ -788,7 +1001,7 @@ function App() {
                 >
                   <button
                     type="button"
-                    onClick={() => cameraInputRef.current?.click()}
+                    onClick={() => setIsCameraOpen(true)}
                     style={{
                       padding: "0.35rem 0.8rem",
                       borderRadius: "999px",
@@ -819,6 +1032,7 @@ function App() {
             </div>
           )}
 
+          {/* Upload button + messages */}
           <button
             onClick={uploadRealReceipt}
             disabled={isUploadingReceipt || !selectedFile}
