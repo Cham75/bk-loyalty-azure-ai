@@ -1,14 +1,22 @@
 // api/src/functions/upload-receipt.js
 const { app } = require("@azure/functions");
-const { addPoints, createReceipt } = require("./data/db");
-const { uploadReceiptImage } = require("./data/blob-storage");
-const { analyzeReceipt } = require("./services/document-intelligence");
-const { getUserId } = require("./auth/client-principal");
+const crypto = require("crypto");
+const {
+  addPoints,
+  createReceipt,
+  countReceiptsForUserOnDay,
+  findReceiptByImageHash,
+} = require("../data/db");
+const { uploadReceiptImage } = require("../data/blob-storage");
+const { analyzeReceipt } = require("../services/document-intelligence");
+const { getUserId } = require("../auth/client-principal");
 
-const MAX_RECEIPT_AGE_DAYS = 2;
+const MAX_RECEIPT_AGE_DAYS = 2;        // receipt must be <= 2 days old
+const DAILY_RECEIPT_LIMIT = 3;         // max rewarded receipts per user per day
+const MAX_AMOUNT_FOR_POINTS = 80;      // cap points above this amount
 
 function computeReceiptAgeDays(receiptDate) {
-  if (!(receiptDate instanceof Date) || isNaN(receiptDate.getTime())) {
+  if (!(receiptDate instanceof Date) || Number.isNaN(receiptDate.getTime())) {
     return null;
   }
 
@@ -66,10 +74,23 @@ app.http("upload-receipt", {
         };
       }
 
-      // 1) Convert base64 -> Buffer for Document Intelligence
+      // 1) Convert base64 -> Buffer
       const buffer = Buffer.from(fileBase64, "base64");
 
-      // 2) Call Document Intelligence to detect amount, merchant, date, BK presence
+      // 2) Anti-fraud: duplicate image via hash
+      const imageHash = crypto.createHash("sha256").update(buffer).digest("hex");
+      const existing = await findReceiptByImageHash(imageHash);
+      if (existing) {
+        return {
+          status: 400,
+          jsonBody: {
+            error: "DUPLICATE_RECEIPT",
+            message: "This receipt has already been used.",
+          },
+        };
+      }
+
+      // 3) Analyze receipt to get amount + merchant + transaction date
       let analysis = null;
       try {
         analysis = await analyzeReceipt(buffer);
@@ -78,14 +99,9 @@ app.http("upload-receipt", {
       }
 
       let amount =
-        analysis && typeof analysis.amount === "number" && !isNaN(analysis.amount)
+        analysis && typeof analysis.amount === "number" && !Number.isNaN(analysis.amount)
           ? analysis.amount
           : null;
-
-      if (amount === null) {
-        // Fallback if AI fails
-        amount = 75;
-      }
 
       const merchantName =
         analysis && analysis.merchantName ? analysis.merchantName : null;
@@ -93,86 +109,113 @@ app.http("upload-receipt", {
       const transactionDate =
         analysis &&
         analysis.transactionDate instanceof Date &&
-        !isNaN(analysis.transactionDate.getTime())
+        !Number.isNaN(analysis.transactionDate.getTime())
           ? analysis.transactionDate
           : null;
 
-      const rawDateText =
-        analysis && analysis.rawDateText ? analysis.rawDateText : null;
-
+      const rawDateText = analysis && analysis.rawDateText ? analysis.rawDateText : null;
       const hasBurgerKing =
         analysis && typeof analysis.hasBurgerKing === "boolean"
           ? analysis.hasBurgerKing
           : null;
 
-      const validationIssues = [];
+      const reasons = [];
 
+      // BK must be clearly visible: if we are sure it's not BK, reject.
+      if (hasBurgerKing === false) {
+        reasons.push({
+          code: "MERCHANT_NOT_BURGER_KING",
+          message: "We could not detect 'Burger King' or 'BK' on this receipt.",
+        });
+      }
+
+      // Date must be readable and <= 2 days old, but we tolerate minor timezone drift.
+      let receiptAgeDays = null;
       if (transactionDate) {
-        const ageDays = computeReceiptAgeDays(transactionDate);
-
-        if (ageDays !== null) {
-          if (ageDays > MAX_RECEIPT_AGE_DAYS) {
-            validationIssues.push({
+        receiptAgeDays = computeReceiptAgeDays(transactionDate);
+        if (receiptAgeDays !== null) {
+          if (receiptAgeDays > MAX_RECEIPT_AGE_DAYS) {
+            reasons.push({
               code: "RECEIPT_TOO_OLD",
-              message: "Receipt date is older than the allowed 2 days.",
+              message: "The receipt is older than 2 days.",
             });
-          } else if (ageDays < -1) {
-            validationIssues.push({
+          } else if (receiptAgeDays < -1) {
+            reasons.push({
               code: "RECEIPT_IN_FUTURE",
-              message: "Receipt date appears to be in the future.",
+              message: "The receipt date appears to be in the future.",
             });
           }
         }
-      }
-
-      // If we can confidently say it's NOT Burger King
-      if (hasBurgerKing === false) {
-        validationIssues.push({
-          code: "MERCHANT_NOT_BURGER_KING",
-          message: "Could not detect 'Burger King' or 'BK' on the receipt.",
+      } else {
+        // No usable date at all: we can't apply the 2-day rule, so reject gently.
+        reasons.push({
+          code: "DATE_NOT_DETECTED",
+          message:
+            "We couldn't read the date on the receipt. Please upload a photo where the date is clearly visible.",
         });
       }
 
-      if (amount <= 0) {
-        // Don't reject hard, but mark it and fallback
-        validationIssues.push({
+      // Basic sanity check on amount – non-critical, we can still fallback.
+      let amountInvalid = false;
+      if (amount === null || Number.isNaN(amount) || amount <= 0) {
+        amountInvalid = true;
+        reasons.push({
           code: "INVALID_AMOUNT",
-          message: "Detected amount on receipt is invalid.",
+          message: "The amount detected on the receipt seems invalid.",
         });
       }
 
-      const transactionDateIso = transactionDate
-        ? transactionDate.toISOString()
-        : null;
-
-      // Decide which issues are "blocking"
-      const hasCriticalIssue = validationIssues.some(
-        (issue) =>
-          issue.code === "RECEIPT_TOO_OLD" ||
-          issue.code === "RECEIPT_IN_FUTURE" ||
-          issue.code === "MERCHANT_NOT_BURGER_KING"
+      // Decide if reasons are blocking: merchant / date issues are blocking,
+      // amount is not (we'll fallback to a default).
+      const hasBlocking = reasons.some(
+        (r) =>
+          r.code === "MERCHANT_NOT_BURGER_KING" ||
+          r.code === "RECEIPT_TOO_OLD" ||
+          r.code === "RECEIPT_IN_FUTURE" ||
+          r.code === "DATE_NOT_DETECTED"
       );
 
-      if (hasCriticalIssue) {
-        // Reject without awarding points or storing the receipt
+      const transactionDateIso = transactionDate ? transactionDate.toISOString() : null;
+
+      if (hasBlocking) {
         return {
           status: 400,
           jsonBody: {
             error: "RECEIPT_REJECTED",
-            reasons: validationIssues,
+            reasons,
             amount,
             transactionDate: transactionDateIso,
             rawDateText,
+            merchantName,
           },
         };
       }
 
-      // Non-critical issue: invalid amount → fallback to default
-      if (validationIssues.some((issue) => issue.code === "INVALID_AMOUNT")) {
+      // Non-blocking issue: if amount invalid, fallback to default average value
+      if (amountInvalid) {
         amount = 75;
       }
 
-      // 3) Upload image to Blob storage
+      // 4) Daily per-user limit
+      const now = new Date();
+      const receiptsToday = await countReceiptsForUserOnDay(userId, now);
+      if (receiptsToday >= DAILY_RECEIPT_LIMIT) {
+        return {
+          status: 400,
+          jsonBody: {
+            error: "DAILY_LIMIT_REACHED",
+            message:
+              "You’ve reached today’s limit of rewarded receipts. Try again tomorrow.",
+            dailyLimit: DAILY_RECEIPT_LIMIT,
+          },
+        };
+      }
+
+      // 5) Amount sanity + cap for points
+      const effectiveAmount = Math.min(amount, MAX_AMOUNT_FOR_POINTS);
+      const pointsEarned = Math.floor(effectiveAmount);
+
+      // 6) Upload image to Blob storage
       const blobUrl = await uploadReceiptImage(
         userId,
         fileName,
@@ -180,18 +223,14 @@ app.http("upload-receipt", {
         fileBase64
       );
 
-      // 4) Compute points
-      const pointsEarned = Math.floor(amount);
+      // 7) Save receipt in DB with extra fields
+      const receipt = await createReceipt(userId, blobUrl, amount, pointsEarned, {
+        imageHash,
+        merchantName,
+        receiptDate: transactionDateIso,
+      });
 
-      // 5) Save receipt in Cosmos
-      const receipt = await createReceipt(
-        userId,
-        blobUrl,
-        amount,
-        pointsEarned
-      );
-
-      // 6) Update user points in Cosmos
+      // 8) Update user points
       const updatedUser = await addPoints(userId, pointsEarned);
 
       return {

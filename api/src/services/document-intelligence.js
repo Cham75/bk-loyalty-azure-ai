@@ -17,9 +17,9 @@ function getClient() {
   return client;
 }
 
-// ---- helpers ----
+// -------- helpers --------
 
-// Extract amount from receipt.fields (same logic as previous version)
+// Extract amount from receipt.fields
 function extractAmountFromFields(fields) {
   if (!fields) return null;
 
@@ -45,8 +45,9 @@ function extractAmountFromFields(fields) {
   }
 
   if (typeof raw === "string") {
-    const parsed = parseFloat(raw.replace(",", "."));
-    if (!isNaN(parsed)) {
+    const normalized = raw.replace(",", ".").replace(/[^\d.]/g, "");
+    const parsed = parseFloat(normalized);
+    if (!Number.isNaN(parsed)) {
       return parsed;
     }
   }
@@ -57,10 +58,10 @@ function extractAmountFromFields(fields) {
 function extractMerchantName(fields, result) {
   if (fields && fields.MerchantName) {
     const f = fields.MerchantName;
-    if (f.value && typeof f.value === "string" && f.value.trim()) {
+    if (typeof f.value === "string" && f.value.trim()) {
       return f.value.trim();
     }
-    if (f.content && typeof f.content === "string" && f.content.trim()) {
+    if (typeof f.content === "string" && f.content.trim()) {
       return f.content.trim();
     }
   }
@@ -78,15 +79,14 @@ function extractMerchantName(fields, result) {
   return null;
 }
 
-// Detect if receipt text clearly mentions Burger King / BK
 function detectBurgerKing(fields, result) {
   const parts = [];
 
   if (fields && fields.MerchantName) {
     const f = fields.MerchantName;
-    if (f.value && typeof f.value === "string") {
+    if (typeof f.value === "string") {
       parts.push(f.value);
-    } else if (f.content && typeof f.content === "string") {
+    } else if (typeof f.content === "string") {
       parts.push(f.content);
     }
   }
@@ -98,15 +98,14 @@ function detectBurgerKing(fields, result) {
   const haystack = parts.join(" ").toLowerCase();
 
   if (!haystack) {
-    // Unknown (no text)
-    return null;
+    return null; // unknown
   }
 
-  if (haystack.indexOf("burger king") !== -1 || haystack.indexOf("burgerking") !== -1) {
+  if (haystack.includes("burger king") || haystack.includes("burgerking")) {
     return true;
   }
 
-  // Very light BK check – whole word "bk"
+  // soft "BK" check (whole word)
   if (/\bbk\b/.test(haystack)) {
     return true;
   }
@@ -126,12 +125,13 @@ function normalizeReceiptDate(rawText, now) {
     return { date: null, rawText: null };
   }
 
-  // First try a direct Date parse for ISO-like strings
+  // Direct parse first (for ISO-like strings)
   const direct = new Date(text);
-  if (!isNaN(direct.getTime())) {
+  if (!Number.isNaN(direct.getTime())) {
     return { date: direct, rawText: text };
   }
 
+  // Look for dd/mm/yyyy or mm/dd/yyyy pattern
   const match = text.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
   if (!match) {
     return { date: null, rawText: text };
@@ -141,7 +141,7 @@ function normalizeReceiptDate(rawText, now) {
   let part2 = parseInt(match[2], 10);
   let year = parseInt(match[3], 10);
 
-  if (!isFinite(part1) || !isFinite(part2) || !isFinite(year)) {
+  if (!Number.isFinite(part1) || !Number.isFinite(part2) || !Number.isFinite(year)) {
     return { date: null, rawText: text };
   }
 
@@ -156,7 +156,7 @@ function normalizeReceiptDate(rawText, now) {
     if (day < 1 || day > 31) return;
     if (month < 1 || month > 12) return;
 
-    // Use UTC to avoid timezone day shifts
+    // Use UTC to avoid timezone off-by-one
     const d = new Date(Date.UTC(year, month - 1, day));
     candidates.push(d);
   }
@@ -164,7 +164,7 @@ function normalizeReceiptDate(rawText, now) {
   // Morocco default: dd/mm/yyyy
   pushCandidate(part1, part2);
 
-  // Also try mm/dd/yyyy if plausible (both parts <= 12)
+  // Also consider mm/dd/yyyy if plausible
   if (part1 <= 12 && part2 <= 31) {
     pushCandidate(part2, part1);
   }
@@ -185,14 +185,13 @@ function normalizeReceiptDate(rawText, now) {
 
   let best = candidates[0];
   let bestScore = Math.abs(
-    Date.UTC(best.getUTCFullYear(), best.getUTCMonth(), best.getUTCDate()) -
-      nowUtc
+    Date.UTC(best.getUTCFullYear(), best.getUTCMonth(), best.getUTCDate()) - nowUtc
   );
 
   for (let i = 1; i < candidates.length; i++) {
     const c = candidates[i];
     const score = Math.abs(
-      Date.UTC(c.getUTCFullYear(), c.getUTCMonth(), c.getUTCDate()) - nowUtc
+      Date.UTC(c.getUTCFullYear(), c.getUTCMonth(), c.getDate()) - nowUtc
     );
     if (score < bestScore) {
       best = c;
@@ -220,7 +219,7 @@ function extractTransactionDate(fields, result) {
         dateFromField = v;
       } else if (typeof v === "string") {
         const parsed = new Date(v);
-        if (!isNaN(parsed.getTime())) {
+        if (!Number.isNaN(parsed.getTime())) {
           dateFromField = parsed;
         }
       }
@@ -235,11 +234,12 @@ function extractTransactionDate(fields, result) {
       }
     }
 
-    if (!rawText && candidateField.content && typeof candidateField.content === "string") {
+    if (!rawText && typeof candidateField.content === "string") {
       rawText = candidateField.content;
     }
   }
 
+  // Fallback: search date-like pattern in full content
   if (!rawText && result && typeof result.content === "string") {
     const match = result.content.match(/(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/);
     if (match) {
@@ -259,7 +259,7 @@ function extractTransactionDate(fields, result) {
   return { date: null, rawText: null };
 }
 
-// ---- main analysis function ----
+// -------- main analysis function --------
 
 // buffer = Buffer of the image (jpeg/png...)
 async function analyzeReceipt(buffer) {
@@ -298,13 +298,13 @@ async function analyzeReceipt(buffer) {
   };
 }
 
-// Backward-compatible function: still returns only amount
+// Backwards-compatible helper if some code still only expects the total
 async function extractTotalAmountFromReceipt(buffer) {
-  const analysis = await analyzeReceipt(buffer);
-  return analysis.amount;
+  const info = await analyzeReceipt(buffer);
+  return info.amount;
 }
 
 module.exports = {
-  extractTotalAmountFromReceipt,
   analyzeReceipt,
+  extractTotalAmountFromReceipt,
 };
