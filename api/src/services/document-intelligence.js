@@ -1,4 +1,3 @@
-// api/src/services/document-intelligence.js
 const { AzureKeyCredential, DocumentAnalysisClient } = require("@azure/ai-form-recognizer");
 
 const endpoint = process.env.DOCINT_ENDPOINT;
@@ -17,9 +16,8 @@ function getClient() {
   return client;
 }
 
-// -------- helpers --------
+// ---------- helpers ----------
 
-// Extract amount from receipt.fields
 function extractAmountFromFields(fields) {
   if (!fields) return null;
 
@@ -30,9 +28,7 @@ function extractAmountFromFields(fields) {
     fields.SubTotal ||
     null;
 
-  if (!candidate) {
-    return null;
-  }
+  if (!candidate) return null;
 
   const raw =
     candidate.value ??
@@ -105,7 +101,7 @@ function detectBurgerKing(fields, result) {
     return true;
   }
 
-  // soft "BK" check (whole word)
+  // very soft "BK" check
   if (/\bbk\b/.test(haystack)) {
     return true;
   }
@@ -113,8 +109,9 @@ function detectBurgerKing(fields, result) {
   return false;
 }
 
-// Normalize a date string, accepting dd/mm/yyyy or mm/dd/yyyy.
-// We pick the interpretation that is closest to "now" to avoid churn.
+// Normalize dd/mm/yyyy or mm/dd/yyyy.
+// Rule: try BOTH and pick the one closest to TODAY.
+// If no dd/mm pattern → use normal Date().
 function normalizeReceiptDate(rawText, now) {
   if (!rawText || typeof rawText !== "string") {
     return { date: null, rawText: null };
@@ -125,15 +122,15 @@ function normalizeReceiptDate(rawText, now) {
     return { date: null, rawText: null };
   }
 
-  // Direct parse first (for ISO-like strings)
-  const direct = new Date(text);
-  if (!Number.isNaN(direct.getTime())) {
-    return { date: direct, rawText: text };
-  }
+  const pattern = /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/;
+  const match = text.match(pattern);
 
-  // Look for dd/mm/yyyy or mm/dd/yyyy pattern
-  const match = text.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  // No explicit 12/10/2025-style pattern → use native parsing
   if (!match) {
+    const direct = new Date(text);
+    if (!Number.isNaN(direct.getTime())) {
+      return { date: direct, rawText: text };
+    }
     return { date: null, rawText: text };
   }
 
@@ -155,44 +152,49 @@ function normalizeReceiptDate(rawText, now) {
   function pushCandidate(day, month) {
     if (day < 1 || day > 31) return;
     if (month < 1 || month > 12) return;
-
-    // Use UTC to avoid timezone off-by-one
-    const d = new Date(Date.UTC(year, month - 1, day));
+    // local time, midnight
+    const d = new Date(year, month - 1, day);
     candidates.push(d);
   }
 
-  // Morocco default: dd/mm/yyyy
+  // Morocco default dd/mm/yyyy
   pushCandidate(part1, part2);
 
-  // Also consider mm/dd/yyyy if plausible
+  // Also allow mm/dd/yyyy if plausible
   if (part1 <= 12 && part2 <= 31) {
     pushCandidate(part2, part1);
   }
 
-  if (candidates.length === 0) {
+  if (!candidates.length) {
     return { date: null, rawText: text };
   }
 
   if (!now) {
     now = new Date();
   }
-
-  const nowUtc = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate()
-  );
+  const baseMidnight = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate()
+  ).getTime();
 
   let best = candidates[0];
   let bestScore = Math.abs(
-    Date.UTC(best.getUTCFullYear(), best.getUTCMonth(), best.getUTCDate()) - nowUtc
+    new Date(
+      best.getFullYear(),
+      best.getMonth(),
+      best.getDate()
+    ).getTime() - baseMidnight
   );
 
   for (let i = 1; i < candidates.length; i++) {
     const c = candidates[i];
-    const score = Math.abs(
-      Date.UTC(c.getUTCFullYear(), c.getUTCMonth(), c.getDate()) - nowUtc
-    );
+    const cMidnight = new Date(
+      c.getFullYear(),
+      c.getMonth(),
+      c.getDate()
+    ).getTime();
+    const score = Math.abs(cMidnight - baseMidnight);
     if (score < bestScore) {
       best = c;
       bestScore = score;
@@ -203,52 +205,33 @@ function normalizeReceiptDate(rawText, now) {
 }
 
 function extractTransactionDate(fields, result) {
-  let candidateField =
-    (fields && fields.TransactionDate) ||
-    (fields && fields.TransactionDateTime) ||
-    (fields && fields.PurchaseDate) ||
-    null;
-
   let rawText = null;
-  let dateFromField = null;
+  const dateFields = [];
 
-  if (candidateField) {
-    if (candidateField.valueDate) {
-      const v = candidateField.valueDate;
-      if (v instanceof Date) {
-        dateFromField = v;
-      } else if (typeof v === "string") {
-        const parsed = new Date(v);
-        if (!Number.isNaN(parsed.getTime())) {
-          dateFromField = parsed;
-        }
-      }
+  if (fields) {
+    if (fields.TransactionDate) dateFields.push(fields.TransactionDate);
+    if (fields.TransactionDateTime) dateFields.push(fields.TransactionDateTime);
+    if (fields.PurchaseDate) dateFields.push(fields.PurchaseDate);
+  }
+
+  // Prefer the raw text we see on the receipt (dd/mm or mm/dd)
+  for (const f of dateFields) {
+    if (f && typeof f.content === "string" && f.content.trim()) {
+      rawText = f.content.trim();
+      break;
     }
-
-    if (!dateFromField && candidateField.value) {
-      const v = candidateField.value;
-      if (v instanceof Date) {
-        dateFromField = v;
-      } else if (typeof v === "string") {
-        rawText = v;
-      }
-    }
-
-    if (!rawText && typeof candidateField.content === "string") {
-      rawText = candidateField.content;
+    if (f && typeof f.value === "string" && f.value.trim()) {
+      rawText = f.value.trim();
+      break;
     }
   }
 
-  // Fallback: search date-like pattern in full content
+  // Fallback: scan entire recognized content for a 12/10/2025-like chunk
   if (!rawText && result && typeof result.content === "string") {
-    const match = result.content.match(/(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/);
-    if (match) {
-      rawText = match[1];
+    const m = result.content.match(/(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/);
+    if (m) {
+      rawText = m[1];
     }
-  }
-
-  if (dateFromField) {
-    return { date: dateFromField, rawText: rawText || null };
   }
 
   if (rawText) {
@@ -256,12 +239,18 @@ function extractTransactionDate(fields, result) {
     return { date: normalized.date, rawText: normalized.rawText };
   }
 
+  // LAST RESORT: if AI gave us a Date directly and we really have nothing else
+  for (const f of dateFields) {
+    if (f && f.valueDate instanceof Date && !Number.isNaN(f.valueDate.getTime())) {
+      return { date: f.valueDate, rawText: null };
+    }
+  }
+
   return { date: null, rawText: null };
 }
 
-// -------- main analysis function --------
+// ---------- main analysis ----------
 
-// buffer = Buffer of the image (jpeg/png...)
 async function analyzeReceipt(buffer) {
   const client = getClient();
 
@@ -298,7 +287,7 @@ async function analyzeReceipt(buffer) {
   };
 }
 
-// Backwards-compatible helper if some code still only expects the total
+// Backward-compatible helper
 async function extractTotalAmountFromReceipt(buffer) {
   const info = await analyzeReceipt(buffer);
   return info.amount;

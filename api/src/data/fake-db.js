@@ -1,7 +1,6 @@
 // api/src/data/fake-db.js
 const { randomUUID } = require("crypto");
 
-// Simple in-memory maps for local dev
 const users = new Map();    // userId -> { userId, points }
 const receipts = new Map(); // receiptId -> { ... }
 const rewards = new Map();  // rewardId -> { ... }
@@ -44,15 +43,13 @@ async function createReceipt(userId, blobUrl, amount, pointsEarned, extras = {})
 async function countReceiptsForUserOnDay(userId, day) {
   const d = day instanceof Date ? day : new Date(day);
 
-  const start = new Date(d);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 1);
+  const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
 
   let count = 0;
-  for (const receipt of receipts.values()) {
-    if (receipt.userId !== userId) continue;
-    const created = new Date(receipt.createdAt);
+  for (const r of receipts.values()) {
+    if (r.userId !== userId) continue;
+    const created = new Date(r.createdAt);
     if (created >= start && created < end) {
       count += 1;
     }
@@ -62,9 +59,9 @@ async function countReceiptsForUserOnDay(userId, day) {
 }
 
 async function findReceiptByImageHash(imageHash) {
-  for (const receipt of receipts.values()) {
-    if (receipt.imageHash === imageHash) {
-      return receipt;
+  for (const r of receipts.values()) {
+    if (r.imageHash === imageHash) {
+      return r;
     }
   }
   return null;
@@ -102,7 +99,6 @@ async function createReward(userId, name, pointsCost) {
 
 async function redeemReward(rewardId) {
   const reward = rewards.get(rewardId);
-
   if (!reward) {
     return { found: false };
   }

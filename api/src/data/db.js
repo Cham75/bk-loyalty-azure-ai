@@ -25,46 +25,33 @@ async function getUser(userId) {
 
   try {
     const { resource } = await container.item(userId, userId).read();
-
     if (resource) {
       return {
-        userId: resource.userId,
+        userId: resource.userId || resource.id,
         points: safeNumber(resource.points, 0),
       };
     }
-
-    // If no resource, create a new user with 0 points
-    const userDoc = {
-      id: userId,
-      userId,
-      points: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const { resource: created } = await container.items.create(userDoc);
-
-    return {
-      userId,
-      points: safeNumber(created && created.points, 0),
-    };
   } catch (err) {
-    if (err.code === 404) {
-      const userDoc = {
-        id: userId,
-        userId,
-        points: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      const { resource: created } = await container.items.create(userDoc);
-
-      return {
-        userId,
-        points: safeNumber(created && created.points, 0),
-      };
+    if (err.code !== 404) {
+      throw err;
     }
-    throw err;
   }
+
+  // If not found → create with 0 points
+  const nowIso = new Date().toISOString();
+  const doc = {
+    id: userId,
+    userId,
+    points: 0,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+  const { resource: created } = await container.items.create(doc);
+
+  return {
+    userId: created.userId || created.id,
+    points: safeNumber(created.points, 0),
+  };
 }
 
 async function addPoints(userId, delta) {
@@ -73,21 +60,18 @@ async function addPoints(userId, delta) {
   }
 
   const container = getUsersContainer();
-
-  // Ensure the user exists
   const current = await getUser(userId);
-  const newPoints = safeNumber(current && current.points, 0) + delta;
+  const newPoints = safeNumber(current.points, 0) + delta;
 
-  const updatedDoc = {
+  const nowIso = new Date().toISOString();
+  const doc = {
     id: userId,
     userId,
     points: newPoints,
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso,
   };
 
-  const { resource } = await container
-    .item(userId, userId)
-    .upsert(updatedDoc);
+  const { resource } = await container.items.upsert(doc);
 
   return {
     userId,
@@ -119,10 +103,6 @@ async function createReceipt(userId, blobUrl, amount, pointsEarned, extras = {})
   return resource || receiptDoc;
 }
 
-/**
- * Count how many receipts the user has created on a given day (Date or ISO).
- * Used for daily limit (e.g. 3 receipts/day).
- */
 async function countReceiptsForUserOnDay(userId, day) {
   if (!isCosmosConfigured()) {
     return fake.countReceiptsForUserOnDay(userId, day);
@@ -131,10 +111,8 @@ async function countReceiptsForUserOnDay(userId, day) {
   const container = getReceiptsContainer();
   const d = day instanceof Date ? day : new Date(day);
 
-  const start = new Date(d);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 1);
+  const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
 
   const querySpec = {
     query:
@@ -154,23 +132,18 @@ async function countReceiptsForUserOnDay(userId, day) {
   return safeNumber(count, 0);
 }
 
-/**
- * Used for anti-fraud: detect if an image has already been used anywhere.
- */
 async function findReceiptByImageHash(imageHash) {
   if (!isCosmosConfigured()) {
     return fake.findReceiptByImageHash(imageHash);
   }
 
   const container = getReceiptsContainer();
-
   const querySpec = {
     query: "SELECT TOP 1 * FROM c WHERE c.imageHash = @imageHash",
     parameters: [{ name: "@imageHash", value: imageHash }],
   };
 
   const { resources } = await container.items.query(querySpec).fetchAll();
-
   return resources && resources.length ? resources[0] : null;
 }
 
@@ -185,7 +158,7 @@ async function createReward(userId, name, pointsCost) {
   const rewardsContainer = getRewardsContainer();
 
   const current = await getUser(userId);
-  const currentPoints = safeNumber(current && current.points, 0);
+  const currentPoints = safeNumber(current.points, 0);
 
   if (currentPoints < pointsCost) {
     const err = new Error("Not enough points");
@@ -196,15 +169,20 @@ async function createReward(userId, name, pointsCost) {
   const newPoints = currentPoints - pointsCost;
   const nowIso = new Date().toISOString();
 
+  // Update user points
   const userDoc = {
     id: userId,
     userId,
     points: newPoints,
     updatedAt: nowIso,
   };
+  const { resource: userResource } = await usersContainer.items.upsert(userDoc);
+  const user = {
+    userId,
+    points: safeNumber(userResource && userResource.points, newPoints),
+  };
 
-  await usersContainer.item(userId, userId).upsert(userDoc);
-
+  // Create reward
   const rewardDoc = {
     id: randomUUID(),
     userId,
@@ -215,14 +193,11 @@ async function createReward(userId, name, pointsCost) {
     createdAt: nowIso,
   };
 
-  const { resource } = await rewardsContainer.items.create(rewardDoc);
+  const { resource: rewardResource } = await rewardsContainer.items.create(rewardDoc);
 
   return {
-    reward: resource || rewardDoc,
-    user: {
-      userId,
-      points: newPoints,
-    },
+    reward: rewardResource || rewardDoc,
+    user,
   };
 }
 
@@ -257,9 +232,9 @@ async function redeemReward(rewardId) {
   reward.redeemed = true;
   reward.redeemedAt = new Date().toISOString();
 
-  const { resource } = await container
-    .item(reward.id, reward.userId)
-    .replace(reward);
+  const partitionKey = reward.userId || reward.user_id || reward.user;
+
+  const { resource } = await container.item(reward.id, partitionKey).replace(reward);
 
   return {
     found: true,

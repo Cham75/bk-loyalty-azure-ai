@@ -1,4 +1,3 @@
-// customer-app/src/App.tsx
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 
@@ -44,6 +43,7 @@ interface UploadReceiptErrorResponse {
   amount?: number;
   transactionDate?: string | null;
   rawDateText?: string | null;
+  merchantName?: string | null;
 }
 
 type ClientClaim = {
@@ -69,7 +69,7 @@ function formatReceiptDateFromResponse(
 ): string | null {
   if (transactionDate) {
     const d = new Date(transactionDate);
-    if (!isNaN(d.getTime())) {
+    if (!Number.isNaN(d.getTime())) {
       const dd = String(d.getDate()).padStart(2, "0");
       const mm = String(d.getMonth() + 1).padStart(2, "0");
       const yyyy = d.getFullYear();
@@ -107,30 +107,36 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 function App() {
+  // health-check
   const [apiMessage, setApiMessage] = useState<string | null>(null);
   const [isCallingApi, setIsCallingApi] = useState(false);
 
+  // user & balance
+  const [userLabel, setUserLabel] = useState<string | null>(null);
+  const [loadingUser, setLoadingUser] = useState(true);
   const [points, setPoints] = useState<number | null>(null);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
 
+  // receipts
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
   const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
   const [lastReceiptResult, setLastReceiptResult] = useState<string | null>(null);
   const [lastReceiptError, setLastReceiptError] = useState<string | null>(null);
 
+  // rewards
   const [lastReward, setLastReward] = useState<RewardResponse | null>(null);
   const [isRedeeming, setIsRedeeming] = useState(false);
   const [redeemError, setRedeemError] = useState<string | null>(null);
 
-  const [userLabel, setUserLabel] = useState<string | null>(null);
-  const [loadingUser, setLoadingUser] = useState(true);
-
+  // file inputs
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
 
+  const isSignedIn = !!userLabel;
+
+  // Load authenticated user info
   const loadUser = async () => {
     try {
       setLoadingUser(true);
@@ -187,26 +193,7 @@ function App() {
     void loadUser();
   }, []);
 
-  const callHealthCheck = async () => {
-    try {
-      setIsCallingApi(true);
-      setApiMessage(null);
-
-      const res = await fetch("/api/health-check?name=Customer");
-      if (!res.ok) {
-        throw new Error(`Health-check failed with status ${res.status}`);
-      }
-
-      const data = (await res.json()) as HealthCheckResponse;
-      setApiMessage(`${data.status} – ${data.message}`);
-    } catch (error) {
-      console.error(error);
-      setApiMessage("Error calling health-check API");
-    } finally {
-      setIsCallingApi(false);
-    }
-  };
-
+  // Fetch balance automatically once user is known
   const fetchBalance = async () => {
     try {
       setIsLoadingBalance(true);
@@ -230,6 +217,34 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    if (!loadingUser && userLabel) {
+      void fetchBalance();
+    }
+  }, [loadingUser, userLabel]);
+
+  // Health-check
+  const callHealthCheck = async () => {
+    try {
+      setIsCallingApi(true);
+      setApiMessage(null);
+
+      const res = await fetch("/api/health-check?name=Customer");
+      if (!res.ok) {
+        throw new Error(`Health-check failed with status ${res.status}`);
+      }
+
+      const data = (await res.json()) as HealthCheckResponse;
+      setApiMessage(`${data.status} – ${data.message}`);
+    } catch (error) {
+      console.error(error);
+      setApiMessage("Error calling health-check API");
+    } finally {
+      setIsCallingApi(false);
+    }
+  };
+
+  // File selection
   const handleFileSelected = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
     if (!file) {
@@ -252,6 +267,7 @@ function App() {
     });
   };
 
+  // Handle receipt rejected
   const handleReceiptRejected = (data: UploadReceiptErrorResponse) => {
     const reasons = data.reasons || [];
     const formattedDate = formatReceiptDateFromResponse(
@@ -283,6 +299,12 @@ function App() {
       );
     }
 
+    if (reasons.some((r) => r.code === "DATE_NOT_DETECTED")) {
+      messages.push(
+        "We could not read the date on the receipt. Please upload a clearer photo where the date is visible."
+      );
+    }
+
     if (messages.length === 0) {
       messages.push(
         "Your receipt could not be accepted. Please try again with a clearer photo."
@@ -293,6 +315,7 @@ function App() {
     setLastReceiptResult(null);
   };
 
+  // Upload receipt
   const uploadRealReceipt = async () => {
     if (!selectedFile) {
       setLastReceiptError("Please take or choose a receipt photo first.");
@@ -333,6 +356,18 @@ function App() {
           return;
         }
 
+        if (errData.error === "DUPLICATE_RECEIPT") {
+          setLastReceiptError("This receipt has already been used.");
+          return;
+        }
+
+        if (errData.error === "DAILY_LIMIT_REACHED") {
+          setLastReceiptError(
+            "You’ve reached today’s limit of rewarded receipts. Try again tomorrow."
+          );
+          return;
+        }
+
         setLastReceiptError("Error while uploading the receipt.");
         return;
       }
@@ -368,6 +403,7 @@ function App() {
     }
   };
 
+  // Redeem reward
   const redeemForReward = async () => {
     try {
       setIsRedeeming(true);
@@ -404,8 +440,6 @@ function App() {
       setIsRedeeming(false);
     }
   };
-
-  const isSignedIn = !!userLabel;
 
   return (
     <div
@@ -534,37 +568,15 @@ function App() {
             <p style={{ marginBottom: "0.5rem", color: "#555" }}>
               Current points:
             </p>
-            <div
-              style={{
-                display: "flex",
-                gap: "0.75rem",
-                alignItems: "center",
-                flexWrap: "wrap",
-              }}
-            >
-              <button
-                onClick={fetchBalance}
-                disabled={isLoadingBalance}
-                style={{
-                  padding: "0.5rem 1rem",
-                  borderRadius: "0.5rem",
-                  border: "none",
-                  cursor: "pointer",
-                  fontWeight: 600,
-                  background: "#0ea5e9",
-                  color: "#fff",
-                }}
-              >
-                {isLoadingBalance ? "Loading..." : "Load my points"}
-              </button>
-              <span style={{ fontSize: "1.1rem", color: "#111827" }}>
-                {points === null
-                  ? isSignedIn
-                    ? "—"
-                    : "Please sign in to see your balance."
-                  : `${points} pts`}
-              </span>
-            </div>
+            <span style={{ fontSize: "1.1rem", color: "#111827" }}>
+              {isLoadingBalance
+                ? "Loading..."
+                : points === null
+                ? isSignedIn
+                  ? "—"
+                  : "Please sign in to see your balance."
+                : `${points} pts`}
+            </span>
           </div>
 
           {/* Redeem reward */}
@@ -647,7 +659,7 @@ function App() {
           <p style={{ marginBottom: "0.75rem", color: "#555" }}>
             This sends the image to the backend, stores it in Blob Storage,
             saves a receipt document in Cosmos DB, and uses Document Intelligence
-            to detect the real total amount and the date.
+            to detect the total amount and the date.
           </p>
 
           <div

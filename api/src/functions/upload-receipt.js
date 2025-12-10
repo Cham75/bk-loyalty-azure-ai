@@ -1,4 +1,3 @@
-// api/src/functions/upload-receipt.js
 const { app } = require("@azure/functions");
 const crypto = require("crypto");
 const {
@@ -11,9 +10,9 @@ const { uploadReceiptImage } = require("../data/blob-storage");
 const { analyzeReceipt } = require("../services/document-intelligence");
 const { getUserId } = require("../auth/client-principal");
 
-const MAX_RECEIPT_AGE_DAYS = 2;        // receipt must be <= 2 days old
-const DAILY_RECEIPT_LIMIT = 3;         // max rewarded receipts per user per day
-const MAX_AMOUNT_FOR_POINTS = 80;      // cap points above this amount
+const MAX_RECEIPT_AGE_DAYS = 2;        // <= 2 days old
+const DAILY_RECEIPT_LIMIT = 3;         // max rewarded receipts per day
+const MAX_AMOUNT_FOR_POINTS = 80;      // cap for points
 
 function computeReceiptAgeDays(receiptDate) {
   if (!(receiptDate instanceof Date) || Number.isNaN(receiptDate.getTime())) {
@@ -21,20 +20,20 @@ function computeReceiptAgeDays(receiptDate) {
   }
 
   const now = new Date();
-  const oneDayMs = 24 * 60 * 60 * 1000;
 
-  const utcReceipt = Date.UTC(
-    receiptDate.getUTCFullYear(),
-    receiptDate.getUTCMonth(),
-    receiptDate.getUTCDate()
+  const startOfReceipt = new Date(
+    receiptDate.getFullYear(),
+    receiptDate.getMonth(),
+    receiptDate.getDate()
   );
-  const utcNow = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate()
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate()
   );
 
-  return (utcNow - utcReceipt) / oneDayMs;
+  const diffMs = startOfToday.getTime() - startOfReceipt.getTime();
+  return diffMs / (1000 * 60 * 60 * 24);
 }
 
 app.http("upload-receipt", {
@@ -121,7 +120,7 @@ app.http("upload-receipt", {
 
       const reasons = [];
 
-      // BK must be clearly visible: if we are sure it's not BK, reject.
+      // BK must be clearly visible if we can tell
       if (hasBurgerKing === false) {
         reasons.push({
           code: "MERCHANT_NOT_BURGER_KING",
@@ -129,17 +128,18 @@ app.http("upload-receipt", {
         });
       }
 
-      // Date must be readable and <= 2 days old, but we tolerate minor timezone drift.
+      // Date must be readable and <= 2 days old (loose, but still a rule)
       let receiptAgeDays = null;
       if (transactionDate) {
         receiptAgeDays = computeReceiptAgeDays(transactionDate);
         if (receiptAgeDays !== null) {
-          if (receiptAgeDays > MAX_RECEIPT_AGE_DAYS) {
+          if (receiptAgeDays > MAX_RECEIPT_AGE_DAYS + 0.0001) {
             reasons.push({
               code: "RECEIPT_TOO_OLD",
               message: "The receipt is older than 2 days.",
             });
-          } else if (receiptAgeDays < -1) {
+          } else if (receiptAgeDays < -2) {
+            // more tolerance for "future" due to parsing and timezone
             reasons.push({
               code: "RECEIPT_IN_FUTURE",
               message: "The receipt date appears to be in the future.",
@@ -147,7 +147,7 @@ app.http("upload-receipt", {
           }
         }
       } else {
-        // No usable date at all: we can't apply the 2-day rule, so reject gently.
+        // No usable date at all → we can't safely apply the 2-day rule.
         reasons.push({
           code: "DATE_NOT_DETECTED",
           message:
@@ -155,7 +155,7 @@ app.http("upload-receipt", {
         });
       }
 
-      // Basic sanity check on amount – non-critical, we can still fallback.
+      // Amount sanity (non-blocking)
       let amountInvalid = false;
       if (amount === null || Number.isNaN(amount) || amount <= 0) {
         amountInvalid = true;
@@ -165,8 +165,7 @@ app.http("upload-receipt", {
         });
       }
 
-      // Decide if reasons are blocking: merchant / date issues are blocking,
-      // amount is not (we'll fallback to a default).
+      // Decide which reasons are blocking
       const hasBlocking = reasons.some(
         (r) =>
           r.code === "MERCHANT_NOT_BURGER_KING" ||
@@ -191,12 +190,12 @@ app.http("upload-receipt", {
         };
       }
 
-      // Non-blocking issue: if amount invalid, fallback to default average value
+      // For non-blocking amount issues, fallback to a default average amount
       if (amountInvalid) {
         amount = 75;
       }
 
-      // 4) Daily per-user limit
+      // 4) Daily per-user limit (soft but clear)
       const now = new Date();
       const receiptsToday = await countReceiptsForUserOnDay(userId, now);
       if (receiptsToday >= DAILY_RECEIPT_LIMIT) {
@@ -211,7 +210,7 @@ app.http("upload-receipt", {
         };
       }
 
-      // 5) Amount sanity + cap for points
+      // 5) Cap amount for points
       const effectiveAmount = Math.min(amount, MAX_AMOUNT_FOR_POINTS);
       const pointsEarned = Math.floor(effectiveAmount);
 
@@ -223,7 +222,7 @@ app.http("upload-receipt", {
         fileBase64
       );
 
-      // 7) Save receipt in DB with extra fields
+      // 7) Save receipt in DB with extra metadata
       const receipt = await createReceipt(userId, blobUrl, amount, pointsEarned, {
         imageHash,
         merchantName,
