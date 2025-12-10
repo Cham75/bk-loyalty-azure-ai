@@ -10,9 +10,9 @@ const { uploadReceiptImage } = require("../data/blob-storage");
 const { analyzeReceipt } = require("../services/document-intelligence");
 const { getUserId } = require("../auth/client-principal");
 
-const MAX_RECEIPT_AGE_DAYS = 2;        // <= 2 days old
-const DAILY_RECEIPT_LIMIT = 3;         // max rewarded receipts per day
-const MAX_AMOUNT_FOR_POINTS = 80;      // cap for points
+const MAX_RECEIPT_AGE_DAYS = 2; // <= 2 days old
+const DAILY_RECEIPT_LIMIT = 3; // max rewarded receipts per day
+const MAX_AMOUNT_FOR_POINTS = 1000; // cap for points (safety)
 
 function computeReceiptAgeDays(receiptDate) {
   if (!(receiptDate instanceof Date) || Number.isNaN(receiptDate.getTime())) {
@@ -210,9 +210,11 @@ app.http("upload-receipt", {
         };
       }
 
-      // 5) Cap amount for points
+      // 5) Cap amount for points (safety)
       const effectiveAmount = Math.min(amount, MAX_AMOUNT_FOR_POINTS);
-      const pointsEarned = Math.floor(effectiveAmount);
+
+      // 10 MAD = 1 point
+      const pointsEarned = Math.floor(effectiveAmount / 10);
 
       // 6) Upload image to Blob storage
       const blobUrl = await uploadReceiptImage(

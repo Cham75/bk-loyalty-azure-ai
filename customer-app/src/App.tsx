@@ -18,6 +18,17 @@ interface RewardResponse {
   qrPayload: string;
   newBalance: number;
   pointsCost: number;
+  tier?: string | null;
+}
+
+interface RewardHistoryItem {
+  id: string;
+  name: string;
+  pointsCost: number | null;
+  redeemed: boolean;
+  createdAt?: string | null;
+  redeemedAt?: string | null;
+  tier?: string | null;
 }
 
 interface ReceiptReason {
@@ -84,6 +95,16 @@ function formatReceiptDateFromResponse(
   return null;
 }
 
+function formatSimpleDate(iso?: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -105,6 +126,8 @@ function fileToBase64(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+type RewardTier = "FREE_SIDE" | "FREE_SANDWICH" | "FREE_MENU";
 
 function App() {
   // health-check
@@ -129,6 +152,11 @@ function App() {
   const [lastReward, setLastReward] = useState<RewardResponse | null>(null);
   const [isRedeeming, setIsRedeeming] = useState(false);
   const [redeemError, setRedeemError] = useState<string | null>(null);
+
+  // rewards history
+  const [rewardHistory, setRewardHistory] = useState<RewardHistoryItem[]>([]);
+  const [isLoadingRewards, setIsLoadingRewards] = useState(false);
+  const [rewardsError, setRewardsError] = useState<string | null>(null);
 
   // gallery input
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
@@ -222,9 +250,34 @@ function App() {
     }
   };
 
+  const loadRewardHistory = async () => {
+    try {
+      setIsLoadingRewards(true);
+      setRewardsError(null);
+
+      const res = await fetch("/api/get-user-rewards");
+      if (!res.ok) {
+        if (res.status === 401) {
+          setRewardHistory([]);
+          return;
+        }
+        throw new Error(`get-user-rewards failed with status ${res.status}`);
+      }
+
+      const data = (await res.json()) as { rewards?: RewardHistoryItem[] };
+      setRewardHistory(data.rewards ?? []);
+    } catch (error) {
+      console.error(error);
+      setRewardsError("Error loading your rewards history.");
+    } finally {
+      setIsLoadingRewards(false);
+    }
+  };
+
   useEffect(() => {
     if (!loadingUser && userLabel) {
       void fetchBalance();
+      void loadRewardHistory();
     }
   }, [loadingUser, userLabel]);
 
@@ -531,8 +584,8 @@ function App() {
     }
   };
 
-  // Redeem reward
-  const redeemForReward = async () => {
+  // Redeem reward (tiers)
+  const redeemRewardTier = async (tier: RewardTier) => {
     try {
       setIsRedeeming(true);
       setRedeemError(null);
@@ -540,17 +593,20 @@ function App() {
       const res = await fetch("/api/redeem-reward", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rewardName: "Free Sundae",
-          pointsCost: 100,
-        }),
+        body: JSON.stringify({ tier }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
         if (data.error === "NOT_ENOUGH_POINTS") {
-          setRedeemError("Not enough points (need 100).");
+          let needed = 0;
+          if (tier === "FREE_SIDE") needed = 10;
+          else if (tier === "FREE_SANDWICH") needed = 25;
+          else needed = 40;
+          setRedeemError(
+            `Not enough points for this reward (need ${needed}).`
+          );
         } else if (data.error === "UNAUTHENTICATED") {
           setRedeemError("Please sign in first.");
         } else {
@@ -559,8 +615,11 @@ function App() {
         return;
       }
 
-      setPoints(data.newBalance);
-      setLastReward(data as RewardResponse);
+      const reward = data as RewardResponse;
+
+      setPoints(reward.newBalance);
+      setLastReward(reward);
+      void loadRewardHistory();
     } catch (err) {
       console.error(err);
       setRedeemError("Network error.");
@@ -1032,28 +1091,271 @@ function App() {
             </span>
           </div>
 
-          {/* Redeem reward */}
-          <div>
-            <p style={{ marginBottom: "0.5rem", color: "#555" }}>
-              Redeem 100 points for a free Sundae.
-            </p>
-            <button
-              onClick={redeemForReward}
-              disabled={isRedeeming}
+          {/* Program explanation */}
+          <div
+            style={{
+              marginBottom: "1rem",
+              padding: "0.75rem 0.9rem",
+              borderRadius: "0.75rem",
+              background: "#f9fafb",
+              border: "1px dashed #e5e7eb",
+              fontSize: "0.9rem",
+              color: "#374151",
+            }}
+          >
+            <p
               style={{
-                padding: "0.5rem 1rem",
-                borderRadius: "0.5rem",
-                border: "none",
-                cursor: "pointer",
+                marginBottom: "0.35rem",
                 fontWeight: 600,
-                background: "#f97316",
-                color: "#fff",
               }}
             >
-              {isRedeeming
-                ? "Creating reward..."
-                : "Redeem 100 points for Free Sundae"}
-            </button>
+              How your BK Loyalty works:
+            </p>
+            <p style={{ marginBottom: "0.25rem" }}>10 MAD = 1 point</p>
+            <p style={{ marginBottom: "0.15rem" }}>
+              🥤 <strong>10 pts</strong> → free side (up to 15 MAD)
+            </p>
+            <p style={{ marginBottom: "0.15rem" }}>
+              🍔 <strong>25 pts</strong> → free sandwich (up to 35 MAD)
+            </p>
+            <p>
+              🍔+🥤 <strong>40 pts</strong> → free menu (up to 60 MAD)
+            </p>
+          </div>
+
+          {/* Redeem rewards (tiers) */}
+          <div>
+            <p style={{ marginBottom: "0.5rem", color: "#555" }}>
+              Use your points to unlock these rewards:
+            </p>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: "0.75rem",
+              }}
+            >
+              {/* FREE SIDE */}
+              <div
+                style={{
+                  background: "#f9fafb",
+                  borderRadius: "0.75rem",
+                  padding: "0.75rem 0.9rem",
+                  border: "1px solid #e5e7eb",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 600,
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  🥤 Free side
+                </div>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#4b5563",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Any side up to 15 MAD.
+                </p>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Cost: <strong>10 pts</strong>
+                  {points !== null && (
+                    <span
+                      style={{
+                        marginLeft: "0.25rem",
+                        color: points >= 10 ? "#16a34a" : "#9ca3af",
+                      }}
+                    >
+                      (
+                      {points >= 10
+                        ? "Available"
+                        : `Need ${10 - points} more`}
+                      )
+                    </span>
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => redeemRewardTier("FREE_SIDE")}
+                  disabled={isRedeeming || points === null || points < 10}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    borderRadius: "0.5rem",
+                    border: "none",
+                    cursor:
+                      isRedeeming || points === null || points < 10
+                        ? "not-allowed"
+                        : "pointer",
+                    fontWeight: 600,
+                    background:
+                      isRedeeming || points === null || points < 10
+                        ? "#9ca3af"
+                        : "#f97316",
+                    color: "#fff",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {isRedeeming ? "Creating…" : "Redeem"}
+                </button>
+              </div>
+
+              {/* FREE SANDWICH */}
+              <div
+                style={{
+                  background: "#f9fafb",
+                  borderRadius: "0.75rem",
+                  padding: "0.75rem 0.9rem",
+                  border: "1px solid #e5e7eb",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 600,
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  🍔 Free sandwich
+                </div>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#4b5563",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Any sandwich up to 35 MAD.
+                </p>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Cost: <strong>25 pts</strong>
+                  {points !== null && (
+                    <span
+                      style={{
+                        marginLeft: "0.25rem",
+                        color: points >= 25 ? "#16a34a" : "#9ca3af",
+                      }}
+                    >
+                      (
+                      {points >= 25
+                        ? "Available"
+                        : `Need ${25 - points} more`}
+                      )
+                    </span>
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => redeemRewardTier("FREE_SANDWICH")}
+                  disabled={isRedeeming || points === null || points < 25}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    borderRadius: "0.5rem",
+                    border: "none",
+                    cursor:
+                      isRedeeming || points === null || points < 25
+                        ? "not-allowed"
+                        : "pointer",
+                    fontWeight: 600,
+                    background:
+                      isRedeeming || points === null || points < 25
+                        ? "#9ca3af"
+                        : "#f97316",
+                    color: "#fff",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {isRedeeming ? "Creating…" : "Redeem"}
+                </button>
+              </div>
+
+              {/* FREE MENU */}
+              <div
+                style={{
+                  background: "#f9fafb",
+                  borderRadius: "0.75rem",
+                  padding: "0.75rem 0.9rem",
+                  border: "1px solid #e5e7eb",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 600,
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  🍔+🥤 Free menu
+                </div>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#4b5563",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Any menu up to 60 MAD.
+                </p>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Cost: <strong>40 pts</strong>
+                  {points !== null && (
+                    <span
+                      style={{
+                        marginLeft: "0.25rem",
+                        color: points >= 40 ? "#16a34a" : "#9ca3af",
+                      }}
+                    >
+                      (
+                      {points >= 40
+                        ? "Available"
+                        : `Need ${40 - points} more`}
+                      )
+                    </span>
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => redeemRewardTier("FREE_MENU")}
+                  disabled={isRedeeming || points === null || points < 40}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    borderRadius: "0.5rem",
+                    border: "none",
+                    cursor:
+                      isRedeeming || points === null || points < 40
+                        ? "not-allowed"
+                        : "pointer",
+                    fontWeight: 600,
+                    background:
+                      isRedeeming || points === null || points < 40
+                        ? "#9ca3af"
+                        : "#f97316",
+                    color: "#fff",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {isRedeeming ? "Creating…" : "Redeem"}
+                </button>
+              </div>
+            </div>
+
             {redeemError && (
               <p style={{ marginTop: "0.5rem", color: "#b91c1c" }}>
                 {redeemError}
@@ -1061,6 +1363,7 @@ function App() {
             )}
           </div>
 
+          {/* Last created reward QR */}
           {lastReward && (
             <div
               style={{
@@ -1077,13 +1380,16 @@ function App() {
                     fontWeight: 600,
                   }}
                 >
-                  Your reward QR:
+                  Your latest reward QR:
                 </p>
                 <QRCodeCanvas value={lastReward.qrPayload} size={160} />
               </div>
               <div style={{ fontSize: "0.9rem", color: "#374151" }}>
                 <p>
                   Reward: <strong>{lastReward.rewardName}</strong>
+                </p>
+                <p>
+                  Cost: <strong>{lastReward.pointsCost} pts</strong>
                 </p>
                 <p>
                   Code: <strong>{lastReward.rewardId}</strong>
@@ -1095,6 +1401,150 @@ function App() {
               </div>
             </div>
           )}
+
+          {/* Rewards history */}
+          <div
+            style={{
+              marginTop: "1.5rem",
+              paddingTop: "1rem",
+              borderTop: "1px dashed #e5e7eb",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "0.75rem",
+                marginBottom: "0.75rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <h3
+                  style={{
+                    fontSize: "1rem",
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  Your rewards history
+                </h3>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#6b7280",
+                  }}
+                >
+                  See all the rewards you&apos;ve created and when they were
+                  used.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadRewardHistory()}
+                disabled={isLoadingRewards}
+                style={{
+                  padding: "0.4rem 0.9rem",
+                  borderRadius: "999px",
+                  border: "1px solid #e5e7eb",
+                  background: "#fff",
+                  fontSize: "0.8rem",
+                  cursor: isLoadingRewards ? "wait" : "pointer",
+                }}
+              >
+                {isLoadingRewards ? "Refreshing…" : "Refresh history"}
+              </button>
+            </div>
+
+            {rewardsError && (
+              <p style={{ color: "#b91c1c", fontSize: "0.85rem" }}>
+                {rewardsError}
+              </p>
+            )}
+
+            {!isLoadingRewards && rewardHistory.length === 0 && !rewardsError && (
+              <p style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+                You don&apos;t have any rewards yet. Scan receipts to earn
+                points and redeem them above.
+              </p>
+            )}
+
+            {rewardHistory.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.75rem",
+                }}
+              >
+                {rewardHistory.map((reward) => {
+                  const created = formatSimpleDate(reward.createdAt ?? null);
+                  const redeemed = formatSimpleDate(reward.redeemedAt ?? null);
+                  const qrValue = `reward:${reward.id}`;
+
+                  return (
+                    <div
+                      key={reward.id}
+                      style={{
+                        display: "flex",
+                        gap: "0.75rem",
+                        alignItems: "flex-start",
+                        padding: "0.75rem 0.9rem",
+                        borderRadius: "0.75rem",
+                        background: "#f9fafb",
+                        border: "1px solid #e5e7eb",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div>
+                        <QRCodeCanvas value={qrValue} size={80} />
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "0.85rem",
+                          color: "#374151",
+                          flex: 1,
+                          minWidth: 0,
+                        }}
+                      >
+                        <p>
+                          <strong>{reward.name}</strong>
+                          {reward.pointsCost !== null && (
+                            <>
+                              {" "}
+                              – {reward.pointsCost} pts
+                            </>
+                          )}
+                        </p>
+                        {reward.tier && (
+                          <p
+                            style={{
+                              marginTop: "0.15rem",
+                              color: "#6b7280",
+                              fontSize: "0.8rem",
+                            }}
+                          >
+                            Tier: {reward.tier}
+                          </p>
+                        )}
+                        <p style={{ marginTop: "0.25rem" }}>
+                          Created: {created ?? "—"}
+                        </p>
+                        <p style={{ marginTop: "0.25rem" }}>
+                          Status:{" "}
+                          {reward.redeemed
+                            ? redeemed
+                              ? `Used on ${redeemed}`
+                              : "Used"
+                            : "Not used yet"}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </section>
 
         {/* Section 3 – Receipt upload */}

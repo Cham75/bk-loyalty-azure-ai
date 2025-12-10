@@ -1,9 +1,9 @@
 // api/src/data/fake-db.js
 const { randomUUID } = require("crypto");
 
-const users = new Map();    // userId -> { userId, points }
+const users = new Map(); // userId -> { userId, points }
 const receipts = new Map(); // receiptId -> { ... }
-const rewards = new Map();  // rewardId -> { ... }
+const rewards = new Map(); // rewardId -> { ... }
 
 function ensureUser(userId) {
   if (!users.has(userId)) {
@@ -67,7 +67,7 @@ async function findReceiptByImageHash(imageHash) {
   return null;
 }
 
-async function createReward(userId, name, pointsCost) {
+async function createReward(userId, name, pointsCost, tier = null) {
   const user = ensureUser(userId);
 
   if (user.points < pointsCost) {
@@ -79,14 +79,18 @@ async function createReward(userId, name, pointsCost) {
   user.points -= pointsCost;
 
   const id = "fake-reward-" + randomUUID();
+  const nowIso = new Date().toISOString();
+
   const rewardDoc = {
     id,
     userId,
     name,
     pointsCost,
+    tier,
     qrCodeData: null,
     redeemed: false,
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso,
+    redeemedAt: null,
   };
 
   rewards.set(id, rewardDoc);
@@ -121,6 +125,23 @@ async function redeemReward(rewardId) {
   };
 }
 
+async function listRewardsForUser(userId) {
+  const list = [];
+  for (const r of rewards.values()) {
+    if (r.userId === userId) {
+      list.push(r);
+    }
+  }
+
+  list.sort((a, b) => {
+    const aDate = a.createdAt || "";
+    const bDate = b.createdAt || "";
+    return bDate.localeCompare(aDate);
+  });
+
+  return list;
+}
+
 module.exports = {
   getUser,
   addPoints,
@@ -129,4 +150,5 @@ module.exports = {
   redeemReward,
   countReceiptsForUserOnDay,
   findReceiptByImageHash,
+  listRewardsForUser,
 };

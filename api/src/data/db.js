@@ -149,9 +149,9 @@ async function findReceiptByImageHash(imageHash) {
 
 // ---------- REWARDS ----------
 
-async function createReward(userId, name, pointsCost) {
+async function createReward(userId, name, pointsCost, tier = null) {
   if (!isCosmosConfigured()) {
-    return fake.createReward(userId, name, pointsCost);
+    return fake.createReward(userId, name, pointsCost, tier);
   }
 
   const usersContainer = getUsersContainer();
@@ -188,6 +188,7 @@ async function createReward(userId, name, pointsCost) {
     userId,
     name,
     pointsCost,
+    tier,
     qrCodeData: null,
     redeemed: false,
     createdAt: nowIso,
@@ -243,6 +244,25 @@ async function redeemReward(rewardId) {
   };
 }
 
+async function listRewardsForUser(userId) {
+  if (!isCosmosConfigured()) {
+    return fake.listRewardsForUser(userId);
+  }
+
+  const container = getRewardsContainer();
+  const querySpec = {
+    query:
+      "SELECT * FROM c WHERE c.userId = @userId ORDER BY c.createdAt DESC",
+    parameters: [{ name: "@userId", value: userId }],
+  };
+
+  const { resources } = await container.items
+    .query(querySpec, { partitionKey: userId })
+    .fetchAll();
+
+  return resources || [];
+}
+
 module.exports = {
   getUser,
   addPoints,
@@ -251,4 +271,5 @@ module.exports = {
   redeemReward,
   countReceiptsForUserOnDay,
   findReceiptByImageHash,
+  listRewardsForUser,
 };

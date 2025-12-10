@@ -2,6 +2,21 @@ const { app } = require("@azure/functions");
 const { createReward } = require("../data/db");
 const { getUserId } = require("../auth/client-principal");
 
+const REWARD_TIERS = {
+  FREE_SIDE: {
+    name: "🥤 Free side (≤ 15 MAD)",
+    pointsCost: 10,
+  },
+  FREE_SANDWICH: {
+    name: "🍔 Free sandwich (≤ 35 MAD)",
+    pointsCost: 25,
+  },
+  FREE_MENU: {
+    name: "🍔+🥤 Free menu (≤ 60 MAD)",
+    pointsCost: 40,
+  },
+};
+
 app.http("redeem-reward", {
   methods: ["POST"],
   authLevel: "anonymous",
@@ -23,14 +38,27 @@ app.http("redeem-reward", {
         body = {};
       }
 
-      const rewardName = body.rewardName || "Free Sundae";
-      const pointsCost =
-        typeof body.pointsCost === "number" ? body.pointsCost : 100;
+      let rewardName;
+      let pointsCost;
+      let tier = null;
+
+      if (body && typeof body.tier === "string" && REWARD_TIERS[body.tier]) {
+        const config = REWARD_TIERS[body.tier];
+        rewardName = config.name;
+        pointsCost = config.pointsCost;
+        tier = body.tier;
+      } else {
+        // Fallback: legacy / custom reward mode
+        rewardName = body.rewardName || "Free Sundae";
+        pointsCost =
+          typeof body.pointsCost === "number" ? body.pointsCost : 100;
+      }
 
       const { reward, user } = await createReward(
         userId,
         rewardName,
-        pointsCost
+        pointsCost,
+        tier
       );
 
       const qrPayload = `reward:${reward.id}`;
@@ -42,6 +70,7 @@ app.http("redeem-reward", {
           pointsCost: reward.pointsCost,
           newBalance: user.points,
           qrPayload,
+          tier: reward.tier || tier || null,
         },
       };
     } catch (err) {
