@@ -250,6 +250,10 @@ function App() {
     if (!file) {
       setSelectedFile(null);
       setSelectedFileName(null);
+      setPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
       return;
     }
 
@@ -740,7 +744,7 @@ function App() {
                 background: "#f9fafb",
                 display: "flex",
                 gap: "0.75rem",
-                alignItems: "center",
+                alignItems: "flex-start",
                 flexWrap: "wrap",
               }}
             >
@@ -752,7 +756,7 @@ function App() {
                     fontWeight: 600,
                   }}
                 >
-                  Selected receipt:
+                  Preview:
                 </p>
                 <img
                   src={previewUrl}
@@ -766,14 +770,51 @@ function App() {
                   }}
                 />
               </div>
-              <div style={{ fontSize: "0.85rem", color: "#4b5563" }}>
+              <div style={{ fontSize: "0.85rem", color: "#4b5563", flex: 1 }}>
                 <p>
                   <strong>File:</strong> {selectedFileName}
                 </p>
                 <p style={{ marginTop: "0.25rem" }}>
-                  If the photo is not clear, you can take or choose another one
-                  before uploading.
+                  If the photo is not clear, you can retake it with the camera or
+                  choose another one from your gallery.
                 </p>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "0.5rem",
+                    marginTop: "0.5rem",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => cameraInputRef.current?.click()}
+                    style={{
+                      padding: "0.35rem 0.8rem",
+                      borderRadius: "999px",
+                      border: "1px solid #d1d5db",
+                      background: "#fff",
+                      cursor: "pointer",
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    Retake with camera
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => galleryInputRef.current?.click()}
+                    style={{
+                      padding: "0.35rem 0.8rem",
+                      borderRadius: "999px",
+                      border: "1px solid #d1d5db",
+                      background: "#fff",
+                      cursor: "pointer",
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    Choose another photo
+                  </button>
+                </div>
               </div>
             </div>
           )}
