@@ -569,6 +569,346 @@ function App() {
     }
   };
 
+  // -------------- RENDERING --------------
+
+  // While we don't yet know if the user is signed in, show a neutral loader
+  if (loadingUser) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#f5f5f5",
+          fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+        }}
+      >
+        <main
+          style={{
+            maxWidth: 900,
+            margin: "0 auto",
+            padding: "2rem 1.5rem 3rem",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            minHeight: "100vh",
+          }}
+        >
+          <p style={{ fontSize: "1.1rem", color: "#4b5563" }}>
+            Checking your BK Loyalty session…
+          </p>
+        </main>
+      </div>
+    );
+  }
+
+  // --------- MARKETING LANDING PAGE (NOT SIGNED IN) ---------
+  if (!isSignedIn) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background:
+            "radial-gradient(circle at top left, #fee2e2, #f97316 0, #f97316 35%, #111827 100%)",
+          color: "#111827",
+          fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+        }}
+      >
+        <main
+          style={{
+            maxWidth: 960,
+            margin: "0 auto",
+            padding: "2.5rem 1.5rem 3.5rem",
+          }}
+        >
+          {/* Top bar with small sign-in link */}
+          <header
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: "3rem",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: "999px",
+                  background: "#111827",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#f97316",
+                  fontWeight: 800,
+                  fontSize: "1rem",
+                }}
+              >
+                BK
+              </div>
+              <div>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: "1rem",
+                    color: "#111827",
+                  }}
+                >
+                  BK Loyalty
+                </div>
+                <div style={{ fontSize: "0.8rem", color: "#4b5563" }}>
+                  Turn every burger into rewards
+                </div>
+              </div>
+            </div>
+
+            <a
+              href="/.auth/login/ciam"
+              style={{
+                fontSize: "0.9rem",
+                color: "#111827",
+                textDecoration: "none",
+                padding: "0.45rem 0.9rem",
+                borderRadius: "999px",
+                background: "rgba(255,255,255,0.85)",
+                border: "1px solid rgba(31,41,55,0.1)",
+                fontWeight: 500,
+              }}
+            >
+              Log in
+            </a>
+          </header>
+
+          {/* Hero section */}
+          <section
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr)",
+              gap: "2rem",
+              alignItems: "center",
+            }}
+          >
+            {/* Text column */}
+            <div>
+              <h1
+                style={{
+                  fontSize: "2.3rem",
+                  lineHeight: 1.1,
+                  marginBottom: "1rem",
+                  color: "#111827",
+                }}
+              >
+                Scan your Burger King receipts.
+                <br />
+                Earn points, unlock free treats.
+              </h1>
+              <p
+                style={{
+                  fontSize: "1rem",
+                  color: "#111827",
+                  opacity: 0.9,
+                  marginBottom: "1.5rem",
+                }}
+              >
+                Create your BK Loyalty account in a few seconds, scan your
+                Burger King receipts and turn every visit into{" "}
+                <strong>points and rewards</strong>.
+              </p>
+
+              {/* Main CTAs */}
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "0.75rem",
+                  marginBottom: "1rem",
+                }}
+              >
+                <a
+                  href="/.auth/login/ciam"
+                  style={{
+                    padding: "0.75rem 1.4rem",
+                    borderRadius: "999px",
+                    background: "#111827",
+                    color: "#f9fafb",
+                    textDecoration: "none",
+                    fontWeight: 600,
+                    fontSize: "0.95rem",
+                  }}
+                >
+                  Create my BK Loyalty account
+                </a>
+                <a
+                  href="/.auth/login/ciam"
+                  style={{
+                    padding: "0.75rem 1.4rem",
+                    borderRadius: "999px",
+                    background: "rgba(249,250,251,0.9)",
+                    color: "#111827",
+                    textDecoration: "none",
+                    fontWeight: 500,
+                    fontSize: "0.95rem",
+                    border: "1px solid rgba(17,24,39,0.1)",
+                  }}
+                >
+                  I already have an account
+                </a>
+              </div>
+
+              <p
+                style={{
+                  fontSize: "0.85rem",
+                  color: "#111827",
+                  opacity: 0.8,
+                }}
+              >
+                No card to carry, no code to remember. Just your phone and your
+                Burger King receipts.
+              </p>
+            </div>
+
+            {/* Steps / mini mockup column */}
+            <div
+              style={{
+                background: "rgba(249,250,251,0.95)",
+                borderRadius: "1.25rem",
+                padding: "1.25rem 1.2rem",
+                boxShadow: "0 18px 45px rgba(15,23,42,0.25)",
+                border: "1px solid rgba(148,163,184,0.3)",
+              }}
+            >
+              <p
+                style={{
+                  fontSize: "0.85rem",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  color: "#6b7280",
+                  marginBottom: "0.75rem",
+                  fontWeight: 600,
+                }}
+              >
+                How it works
+              </p>
+              <ol
+                style={{
+                  listStyle: "none",
+                  padding: 0,
+                  margin: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.75rem",
+                  fontSize: "0.9rem",
+                  color: "#111827",
+                }}
+              >
+                <li
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "0.6rem",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: "999px",
+                      background: "#111827",
+                      color: "#f9fafb",
+                      fontSize: "0.75rem",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontWeight: 700,
+                      flexShrink: 0,
+                    }}
+                  >
+                    1
+                  </span>
+                  <span>
+                    Create your BK Loyalty account with your email in a few
+                    seconds.
+                  </span>
+                </li>
+                <li
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "0.6rem",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: "999px",
+                      background: "#111827",
+                      color: "#f9fafb",
+                      fontSize: "0.75rem",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontWeight: 700,
+                      flexShrink: 0,
+                    }}
+                  >
+                    2
+                  </span>
+                  <span>
+                    After each Burger King order, scan your receipt from the
+                    app to earn points automatically.
+                  </span>
+                </li>
+                <li
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "0.6rem",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: "999px",
+                      background: "#111827",
+                      color: "#f9fafb",
+                      fontSize: "0.75rem",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontWeight: 700,
+                      flexShrink: 0,
+                    }}
+                  >
+                    3
+                  </span>
+                  <span>
+                    Redeem your points for free items. Show your QR reward code
+                    at the counter and enjoy.
+                  </span>
+                </li>
+              </ol>
+
+              <div
+                style={{
+                  marginTop: "1rem",
+                  paddingTop: "0.8rem",
+                  borderTop: "1px dashed rgba(148,163,184,0.6)",
+                  fontSize: "0.8rem",
+                  color: "#6b7280",
+                }}
+              >
+                You&apos;ll see your balance, upload receipts, and generate QR
+                rewards right after you log in.
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    );
+  }
+
+  // --------- SIGNED-IN DASHBOARD (EXISTING APP) ---------
   return (
     <div
       style={{
