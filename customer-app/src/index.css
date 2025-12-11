@@ -1,46 +1,30 @@
 /* ================================
-   Polices Burger King (Flame)
+   BK Flame font (OpenType)
    ================================
 
-   Place les fichiers dans :
+   Place these files in:
    customer-app/public/fonts/
 
-   - Flame-Regular.woff2
-   - Flame-Bold.woff2
-   - FlameSans-Regular.woff2
-   - FlameSans-Bold.woff2
+   - Flame-Regular.otf
+   - Flame-Bold.otf
 */
 
 @font-face {
-  font-family: 'Flame';
-  src: url('/fonts/Flame-Regular.woff2') format('woff2');
+  font-family: "Flame";
+  src: url("/fonts/Flame-Regular.otf") format("opentype");
   font-weight: 400;
   font-style: normal;
 }
 
 @font-face {
-  font-family: 'Flame';
-  src: url('/fonts/Flame-Bold.woff2') format('woff2');
-  font-weight: 700;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: 'Flame Sans';
-  src: url('/fonts/FlameSans-Regular.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-}
-
-@font-face {
-  font-family: 'Flame Sans';
-  src: url('/fonts/FlameSans-Bold.woff2') format('woff2');
+  font-family: "Flame";
+  src: url("/fonts/Flame-Bold.otf") format("opentype");
   font-weight: 700;
   font-style: normal;
 }
 
 /* ================================
-   Styles globaux
+   Global styles
    ================================ */
 
 *,
@@ -57,10 +41,10 @@ body,
 
 body {
   margin: 0;
-  font-family: "Flame Sans", system-ui, -apple-system, BlinkMacSystemFont,
+  font-family: "Flame", system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
-  background-color: #F5EBDC; /* Crème BK */
-  color: #502314; /* Marron BK */
+  background-color: #F5EBDC; /* BK cream */
+  color: #502314; /* BK brown */
 }
 
 a {

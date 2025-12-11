@@ -158,7 +158,7 @@ const TIER_COST: Record<RewardTier, number> = {
   CROWN_240: 240,
 };
 
-// Couleur bleu BK pour les CTA principaux
+// BK blue for main CTA
 const BK_BLUE = "#0066CC";
 
 function App() {
@@ -655,7 +655,7 @@ function App() {
           background: "#F5EBDC",
           color: "#502314",
           fontFamily:
-            '"Flame Sans", system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+            '"Flame", system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
         }}
       >
         <main
@@ -686,7 +686,7 @@ function App() {
           background: "#F5EBDC",
           color: "#502314",
           fontFamily:
-            '"Flame Sans", system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+            '"Flame", system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
         }}
       >
         <main
@@ -772,8 +772,6 @@ function App() {
                   lineHeight: 1.1,
                   marginBottom: "1rem",
                   color: "#502314",
-                  fontFamily:
-                    '"Flame", "Flame Sans", system-ui, -apple-system, sans-serif',
                 }}
               >
                 Scanne tes tickets Burger King.
@@ -805,7 +803,7 @@ function App() {
                   style={{
                     padding: "0.75rem 1.4rem",
                     borderRadius: "999px",
-                    background: BK_BLUE, // CTA bleu
+                    background: BK_BLUE,
                     color: "#FFFFFF",
                     textDecoration: "none",
                     fontWeight: 600,
@@ -977,7 +975,7 @@ function App() {
         minHeight: "100vh",
         background: "#F5EBDC",
         fontFamily:
-          '"Flame Sans", system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+          '"Flame", system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
         color: "#502314",
       }}
     >
@@ -1002,8 +1000,6 @@ function App() {
               style={{
                 fontSize: "2rem",
                 marginBottom: "0.5rem",
-                fontFamily:
-                  '"Flame", "Flame Sans", system-ui, -apple-system, sans-serif',
               }}
             >
               BK Fidélité – Espace client
@@ -1069,8 +1065,6 @@ function App() {
             style={{
               fontSize: "1.25rem",
               marginBottom: "0.75rem",
-              fontFamily:
-                '"Flame", "Flame Sans", system-ui, -apple-system, sans-serif',
             }}
           >
             Mes Couronnes & récompenses
@@ -1709,8 +1703,7 @@ function App() {
                   Récompense : <strong>{lastReward.rewardName}</strong>
                 </p>
                 <p>
-                  Coût :{" "}
-                  <strong>{lastReward.pointsCost} Couronnes</strong>
+                  Coût : <strong>{lastReward.pointsCost} Couronnes</strong>
                 </p>
                 <p>
                   Code : <strong>{lastReward.rewardId}</strong>
@@ -1745,8 +1738,6 @@ function App() {
                   style={{
                     fontSize: "1rem",
                     marginBottom: "0.25rem",
-                    fontFamily:
-                      '"Flame", "Flame Sans", system-ui, -apple-system, sans-serif',
                   }}
                 >
                   Historique de mes récompenses
@@ -1924,8 +1915,6 @@ function App() {
             style={{
               fontSize: "1.25rem",
               marginBottom: "0.75rem",
-              fontFamily:
-                '"Flame", "Flame Sans", system-ui, -apple-system, sans-serif',
             }}
           >
             Ajouter un ticket Burger King
@@ -2189,7 +2178,7 @@ function App() {
               border: "none",
               cursor: selectedFile ? "pointer" : "not-allowed",
               fontWeight: 600,
-              background: selectedFile ? BK_BLUE : "#9CA3AF", // bleu BK quand actif
+              background: selectedFile ? BK_BLUE : "#9CA3AF",
               color: "#FFFFFF",
               boxShadow: selectedFile
                 ? "0 8px 20px rgba(0, 102, 204, 0.35)"
