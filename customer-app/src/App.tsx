@@ -1,12 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 
-interface HealthCheckResponse {
-  status: string;
-  message: string;
-  timestamp: string;
-}
-
 interface BalanceResponse {
   userId: string;
   points: number;
@@ -105,31 +99,22 @@ function formatVerboseDate(iso?: string | null): string | null {
   const year = d.getFullYear();
 
   const monthNames = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
+    "janvier",
+    "février",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "août",
+    "septembre",
+    "octobre",
+    "novembre",
+    "décembre",
   ];
 
-  const getSuffix = (n: number): string => {
-    if (n % 10 === 1 && n % 100 !== 11) return "st";
-    if (n % 10 === 2 && n % 100 !== 12) return "nd";
-    if (n % 10 === 3 && n % 100 !== 13) return "rd";
-    return "th";
-  };
-
-  const suffix = getSuffix(day);
   const monthName = monthNames[monthIndex] ?? "";
-
-  return `${day}${suffix} of ${monthName} ${year}`;
+  return `${day} ${monthName} ${year}`;
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -154,20 +139,33 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-type RewardTier = "FREE_SIDE" | "FREE_SANDWICH" | "FREE_MENU";
+type RewardTier =
+  | "CROWN_40"
+  | "CROWN_80"
+  | "CROWN_120"
+  | "CROWN_135"
+  | "CROWN_150"
+  | "CROWN_200"
+  | "CROWN_240";
+
+const TIER_COST: Record<RewardTier, number> = {
+  CROWN_40: 40,
+  CROWN_80: 80,
+  CROWN_120: 120,
+  CROWN_135: 135,
+  CROWN_150: 150,
+  CROWN_200: 200,
+  CROWN_240: 240,
+};
 
 function App() {
-  // health-check
-  const [apiMessage, setApiMessage] = useState<string | null>(null);
-  const [isCallingApi, setIsCallingApi] = useState(false);
-
-  // user & balance
+  // utilisateur & solde
   const [userLabel, setUserLabel] = useState<string | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
   const [points, setPoints] = useState<number | null>(null);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
 
-  // receipts
+  // tickets
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -175,21 +173,21 @@ function App() {
   const [lastReceiptResult, setLastReceiptResult] = useState<string | null>(null);
   const [lastReceiptError, setLastReceiptError] = useState<string | null>(null);
 
-  // rewards
+  // récompenses
   const [lastReward, setLastReward] = useState<RewardResponse | null>(null);
   const [isRedeeming, setIsRedeeming] = useState(false);
   const [redeemError, setRedeemError] = useState<string | null>(null);
 
-  // rewards history
+  // historique des récompenses
   const [rewardHistory, setRewardHistory] = useState<RewardHistoryItem[]>([]);
   const [isLoadingRewards, setIsLoadingRewards] = useState(false);
   const [rewardsError, setRewardsError] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
-  // gallery input
+  // input galerie
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
 
-  // camera state
+  // caméra
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -197,7 +195,7 @@ function App() {
 
   const isSignedIn = !!userLabel;
 
-  // Load authenticated user info
+  // Charge l'utilisateur authentifié
   const loadUser = async () => {
     try {
       setLoadingUser(true);
@@ -254,7 +252,7 @@ function App() {
     void loadUser();
   }, []);
 
-  // Fetch balance automatically once user is known
+  // Récupère le solde de Couronnes
   const fetchBalance = async () => {
     try {
       setIsLoadingBalance(true);
@@ -296,7 +294,9 @@ function App() {
       setRewardHistory(data.rewards ?? []);
     } catch (error) {
       console.error(error);
-      setRewardsError("Error loading your rewards history.");
+      setRewardsError(
+        "Erreur lors du chargement de l'historique de tes récompenses."
+      );
     } finally {
       setIsLoadingRewards(false);
     }
@@ -309,28 +309,7 @@ function App() {
     }
   }, [loadingUser, userLabel]);
 
-  // Health-check
-  const callHealthCheck = async () => {
-    try {
-      setIsCallingApi(true);
-      setApiMessage(null);
-
-      const res = await fetch("/api/health-check?name=Customer");
-      if (!res.ok) {
-        throw new Error(`Health-check failed with status ${res.status}`);
-      }
-
-      const data = (await res.json()) as HealthCheckResponse;
-      setApiMessage(`${data.status} – ${data.message}`);
-    } catch (error) {
-      console.error(error);
-      setApiMessage("Error calling health-check API");
-    } finally {
-      setIsCallingApi(false);
-    }
-  };
-
-  // File selection from gallery
+  // Sélection d'un fichier depuis la galerie
   const handleFileSelected = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
     if (!file) {
@@ -357,11 +336,10 @@ function App() {
     });
   };
 
-  // Camera: start / stop stream when toggling isCameraOpen
+  // Caméra : démarrage / arrêt
   useEffect(() => {
     async function startCamera() {
       if (!isCameraOpen) {
-        // stop any existing stream
         if (mediaStreamRef.current) {
           mediaStreamRef.current.getTracks().forEach((t) => t.stop());
           mediaStreamRef.current = null;
@@ -378,7 +356,9 @@ function App() {
         setCameraError(null);
 
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          setCameraError("Camera not supported on this device/browser.");
+          setCameraError(
+            "Caméra non supportée sur cet appareil / navigateur."
+          );
           return;
         }
 
@@ -396,7 +376,7 @@ function App() {
       } catch (err) {
         console.error("Error accessing camera", err);
         setCameraError(
-          "Unable to access camera. Please allow camera access in your browser settings."
+          "Impossible d'accéder à la caméra. Vérifie les autorisations dans ton navigateur."
         );
       }
     }
@@ -423,7 +403,7 @@ function App() {
   const takePhotoFromCamera = () => {
     const video = videoRef.current;
     if (!video) {
-      setCameraError("Camera is not ready yet.");
+      setCameraError("La caméra n'est pas encore prête.");
       return;
     }
 
@@ -432,7 +412,7 @@ function App() {
 
     if (!videoWidth || !videoHeight) {
       setCameraError(
-        "Camera is still starting. Please wait a second and try again."
+        "La caméra démarre encore. Attends une seconde puis réessaie."
       );
       return;
     }
@@ -442,7 +422,7 @@ function App() {
     canvas.height = videoHeight;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-      setCameraError("Unable to capture image.");
+      setCameraError("Impossible de capturer l'image.");
       return;
     }
 
@@ -451,7 +431,7 @@ function App() {
     canvas.toBlob(
       (blob) => {
         if (!blob) {
-          setCameraError("Unable to capture image.");
+          setCameraError("Impossible de capturer l'image.");
           return;
         }
 
@@ -476,7 +456,7 @@ function App() {
     );
   };
 
-  // Handle receipt rejected
+  // Gestion ticket refusé (message en français)
   const handleReceiptRejected = (data: UploadReceiptErrorResponse) => {
     const reasons = data.reasons || [];
     const formattedDate = formatReceiptDateFromResponse(
@@ -489,34 +469,36 @@ function App() {
     if (reasons.some((r) => r.code === "RECEIPT_TOO_OLD")) {
       if (formattedDate) {
         messages.push(
-          `The ticket dated ${formattedDate} is older than 2 days, so it is not valid.`
+          `Le ticket daté du ${formattedDate} a plus de 2 jours et n'est pas valide pour gagner des Couronnes.`
         );
       } else {
-        messages.push("This ticket is older than 2 days, so it is not valid.");
+        messages.push(
+          "Ce ticket a plus de 2 jours et n'est pas valide pour gagner des Couronnes."
+        );
       }
     }
 
     if (reasons.some((r) => r.code === "RECEIPT_IN_FUTURE")) {
       messages.push(
-        "The ticket date appears to be in the future. Please check the date on your receipt."
+        "La date du ticket semble être dans le futur. Vérifie la date imprimée sur ton ticket."
       );
     }
 
     if (reasons.some((r) => r.code === "MERCHANT_NOT_BURGER_KING")) {
       messages.push(
-        'We could not detect "Burger King" or "BK" on the receipt. Please use a Burger King receipt and ensure the logo/name is clearly visible.'
+        "Nous n'avons pas détecté « Burger King » ou « BK » sur le ticket. Utilise un ticket Burger King où le logo et le nom sont bien visibles."
       );
     }
 
     if (reasons.some((r) => r.code === "DATE_NOT_DETECTED")) {
       messages.push(
-        "We could not read the date on the receipt. Please upload a clearer photo where the date is visible."
+        "Nous n'arrivons pas à lire la date sur le ticket. Merci de prendre une photo où la date est clairement visible."
       );
     }
 
     if (messages.length === 0) {
       messages.push(
-        "Your receipt could not be accepted. Please try again with a clearer photo."
+        "Ton ticket n'a pas pu être accepté. Essaie avec une photo plus nette du ticket Burger King."
       );
     }
 
@@ -524,10 +506,10 @@ function App() {
     setLastReceiptResult(null);
   };
 
-  // Upload receipt
+  // Upload d'un vrai ticket
   const uploadRealReceipt = async () => {
     if (!selectedFile) {
-      setLastReceiptError("Please take or choose a receipt photo first.");
+      setLastReceiptError("Prends ou choisis d'abord une photo de ton ticket.");
       return;
     }
 
@@ -556,7 +538,9 @@ function App() {
         const errData = data as UploadReceiptErrorResponse;
 
         if (res.status === 401 || errData.error === "UNAUTHENTICATED") {
-          setLastReceiptError("Please sign in before uploading a receipt.");
+          setLastReceiptError(
+            "Merci de te connecter avant de déposer un ticket."
+          );
           return;
         }
 
@@ -566,18 +550,18 @@ function App() {
         }
 
         if (errData.error === "DUPLICATE_RECEIPT") {
-          setLastReceiptError("This receipt has already been used.");
+          setLastReceiptError("Ce ticket a déjà été utilisé.");
           return;
         }
 
         if (errData.error === "DAILY_LIMIT_REACHED") {
           setLastReceiptError(
-            "You’ve reached today’s limit of rewarded receipts. Try again tomorrow."
+            "Tu as déjà atteint la limite de tickets récompensés pour aujourd'hui. Réessaie demain."
           );
           return;
         }
 
-        setLastReceiptError("Error while uploading the receipt.");
+        setLastReceiptError("Erreur lors de l'envoi du ticket.");
         return;
       }
 
@@ -594,25 +578,25 @@ function App() {
 
       let msg: string;
       if (formattedDate) {
-        msg = `Receipt dated ${formattedDate} with total ${amountNum.toFixed(
+        msg = `Ticket du ${formattedDate} pour un montant de ${amountNum.toFixed(
           2
-        )} accepted. You earned ${pointsEarned} points.`;
+        )} MAD accepté. Tu gagnes ${pointsEarned} Couronnes.`;
       } else {
-        msg = `Receipt accepted. You earned ${pointsEarned} points on an amount of ${amountNum.toFixed(
+        msg = `Ticket accepté. Tu gagnes ${pointsEarned} Couronnes pour un montant de ${amountNum.toFixed(
           2
-        )}.`;
+        )} MAD.`;
       }
 
       setLastReceiptResult(msg);
     } catch (error) {
       console.error(error);
-      setLastReceiptError("Network error while uploading the receipt.");
+      setLastReceiptError("Erreur réseau lors de l'envoi du ticket.");
     } finally {
       setIsUploadingReceipt(false);
     }
   };
 
-  // Redeem reward (tiers)
+  // Utilisation des Couronnes (paliers)
   const redeemRewardTier = async (tier: RewardTier) => {
     try {
       setIsRedeeming(true);
@@ -628,17 +612,16 @@ function App() {
 
       if (!res.ok) {
         if (data.error === "NOT_ENOUGH_POINTS") {
-          let needed = 0;
-          if (tier === "FREE_SIDE") needed = 10;
-          else if (tier === "FREE_SANDWICH") needed = 25;
-          else needed = 40;
+          const needed = TIER_COST[tier];
           setRedeemError(
-            `Not enough points for this reward (need ${needed}).`
+            `Pas assez de Couronnes pour cette récompense (${needed} nécessaires).`
           );
         } else if (data.error === "UNAUTHENTICATED") {
-          setRedeemError("Please sign in first.");
+          setRedeemError(
+            "Merci de te connecter avant d'utiliser tes Couronnes."
+          );
         } else {
-          setRedeemError("Error while creating reward.");
+          setRedeemError("Erreur lors de la création de la récompense.");
         }
         return;
       }
@@ -650,7 +633,7 @@ function App() {
       void loadRewardHistory();
     } catch (err) {
       console.error(err);
-      setRedeemError("Network error.");
+      setRedeemError("Erreur réseau.");
     } finally {
       setIsRedeeming(false);
     }
@@ -658,14 +641,16 @@ function App() {
 
   // -------------- RENDERING --------------
 
-  // While we don't yet know if the user is signed in, show a neutral loader
+  // État de chargement de la session
   if (loadingUser) {
     return (
       <div
         style={{
           minHeight: "100vh",
-          background: "#f5f5f5",
-          fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+          background: "#F5EBDC",
+          color: "#502314",
+          fontFamily:
+            '"Flame Sans", system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
         }}
       >
         <main
@@ -679,24 +664,24 @@ function App() {
             minHeight: "100vh",
           }}
         >
-          <p style={{ fontSize: "1.1rem", color: "#4b5563" }}>
-            Checking your BK Loyalty session…
+          <p style={{ fontSize: "1.1rem", color: "#502314" }}>
+            Vérification de ta session BK Fidélité…
           </p>
         </main>
       </div>
     );
   }
 
-  // --------- MARKETING LANDING PAGE (NOT SIGNED IN) ---------
+  // --------- LANDING (non connecté) ---------
   if (!isSignedIn) {
     return (
       <div
         style={{
           minHeight: "100vh",
-          background:
-            "radial-gradient(circle at top left, #fee2e2, #f97316 0, #f97316 35%, #111827 100%)",
-          color: "#111827",
-          fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+          background: "#F5EBDC",
+          color: "#502314",
+          fontFamily:
+            '"Flame Sans", system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
         }}
       >
         <main
@@ -706,7 +691,7 @@ function App() {
             padding: "2.5rem 1.5rem 3.5rem",
           }}
         >
-          {/* Top bar with small log in button */}
+          {/* Top bar */}
           <header
             style={{
               display: "flex",
@@ -721,11 +706,11 @@ function App() {
                   width: 36,
                   height: 36,
                   borderRadius: "999px",
-                  background: "#111827",
+                  background: "#502314",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  color: "#f97316",
+                  color: "#F5EBDC",
                   fontWeight: 800,
                   fontSize: "1rem",
                 }}
@@ -737,13 +722,13 @@ function App() {
                   style={{
                     fontWeight: 700,
                     fontSize: "1rem",
-                    color: "#111827",
+                    color: "#502314",
                   }}
                 >
-                  BK Loyalty
+                  BK Fidélité Maroc
                 </div>
-                <div style={{ fontSize: "0.8rem", color: "#4b5563" }}>
-                  Turn every burger into rewards
+                <div style={{ fontSize: "0.8rem", color: "#7C4A2D" }}>
+                  Chaque commande te rapporte des Couronnes
                 </div>
               </div>
             </div>
@@ -752,20 +737,20 @@ function App() {
               href="/.auth/login/ciam"
               style={{
                 fontSize: "0.9rem",
-                color: "#111827",
+                color: "#502314",
                 textDecoration: "none",
                 padding: "0.45rem 0.9rem",
                 borderRadius: "999px",
-                background: "rgba(255,255,255,0.85)",
-                border: "1px solid rgba(31,41,55,0.1)",
+                background: "rgba(255,255,255,0.95)",
+                border: "1px solid rgba(80,35,20,0.15)",
                 fontWeight: 500,
               }}
             >
-              Log in / Sign up
+              Se connecter / Créer mon compte
             </a>
           </header>
 
-          {/* Hero section */}
+          {/* Hero */}
           <section
             style={{
               display: "grid",
@@ -774,34 +759,32 @@ function App() {
               alignItems: "center",
             }}
           >
-            {/* Text column */}
+            {/* Colonne texte */}
             <div>
               <h1
                 style={{
                   fontSize: "2.3rem",
                   lineHeight: 1.1,
                   marginBottom: "1rem",
-                  color: "#111827",
+                  color: "#502314",
                 }}
               >
-                Scan your Burger King receipts.
+                Scanne tes tickets Burger King.
                 <br />
-                Earn points, unlock free treats.
+                Gagne des Couronnes, débloque des cadeaux.
               </h1>
               <p
                 style={{
                   fontSize: "1rem",
-                  color: "#111827",
-                  opacity: 0.9,
+                  color: "#7C4A2D",
                   marginBottom: "1.5rem",
                 }}
               >
-                Create your BK Loyalty account in a few seconds, scan your
-                Burger King receipts and turn every visit into{" "}
-                <strong>points and rewards</strong>.
+                Crée ton compte <strong>BK Fidélité Maroc</strong> en quelques
+                secondes, prends simplement ton ticket en photo et transforme
+                tes visites en <strong>Couronnes et récompenses</strong>.
               </p>
 
-              {/* Single main CTA */}
               <div
                 style={{
                   display: "flex",
@@ -815,37 +798,36 @@ function App() {
                   style={{
                     padding: "0.75rem 1.4rem",
                     borderRadius: "999px",
-                    background: "#111827",
-                    color: "#f9fafb",
+                    background: "#D62300",
+                    color: "#F5EBDC",
                     textDecoration: "none",
                     fontWeight: 600,
                     fontSize: "0.95rem",
                   }}
                 >
-                  Log in or create my BK Loyalty account
+                  Se connecter ou créer mon compte BK Fidélité
                 </a>
               </div>
 
               <p
                 style={{
                   fontSize: "0.85rem",
-                  color: "#111827",
-                  opacity: 0.8,
+                  color: "#7C4A2D",
                 }}
               >
-                No card to carry, no code to remember. Just your phone and your
-                Burger King receipts.
+                Pas de carte à garder, pas de formulaire papier. Juste ton
+                téléphone et tes tickets Burger King Maroc.
               </p>
             </div>
 
-            {/* Steps / mini mockup column */}
+            {/* Colonne droite : explication */}
             <div
               style={{
-                background: "rgba(249,250,251,0.95)",
+                background: "#FFF4D8",
                 borderRadius: "1.25rem",
                 padding: "1.25rem 1.2rem",
-                boxShadow: "0 18px 45px rgba(15,23,42,0.25)",
-                border: "1px solid rgba(148,163,184,0.3)",
+                boxShadow: "0 18px 45px rgba(80,35,20,0.25)",
+                border: "1px solid rgba(247,202,118,0.9)",
               }}
             >
               <p
@@ -853,12 +835,12 @@ function App() {
                   fontSize: "0.85rem",
                   textTransform: "uppercase",
                   letterSpacing: "0.08em",
-                  color: "#6b7280",
+                  color: "#7C4A2D",
                   marginBottom: "0.75rem",
                   fontWeight: 600,
                 }}
               >
-                How it works
+                Comment ça marche ?
               </p>
               <ol
                 style={{
@@ -869,7 +851,7 @@ function App() {
                   flexDirection: "column",
                   gap: "0.75rem",
                   fontSize: "0.9rem",
-                  color: "#111827",
+                  color: "#502314",
                 }}
               >
                 <li
@@ -884,8 +866,8 @@ function App() {
                       width: 22,
                       height: 22,
                       borderRadius: "999px",
-                      background: "#111827",
-                      color: "#f9fafb",
+                      background: "#502314",
+                      color: "#F5EBDC",
                       fontSize: "0.75rem",
                       display: "flex",
                       alignItems: "center",
@@ -897,8 +879,8 @@ function App() {
                     1
                   </span>
                   <span>
-                    Log in or create your BK Loyalty account with your email in a
-                    few seconds.
+                    Connecte-toi ou crée ton compte BK Fidélité avec ton e-mail
+                    en quelques secondes.
                   </span>
                 </li>
                 <li
@@ -913,8 +895,8 @@ function App() {
                       width: 22,
                       height: 22,
                       borderRadius: "999px",
-                      background: "#111827",
-                      color: "#f9fafb",
+                      background: "#502314",
+                      color: "#F5EBDC",
                       fontSize: "0.75rem",
                       display: "flex",
                       alignItems: "center",
@@ -926,8 +908,8 @@ function App() {
                     2
                   </span>
                   <span>
-                    After each Burger King order, scan your receipt from the
-                    app to earn points automatically.
+                    Après chaque commande Burger King au Maroc, prends ton
+                    ticket en photo dans l'appli pour gagner des Couronnes.
                   </span>
                 </li>
                 <li
@@ -942,8 +924,8 @@ function App() {
                       width: 22,
                       height: 22,
                       borderRadius: "999px",
-                      background: "#111827",
-                      color: "#f9fafb",
+                      background: "#502314",
+                      color: "#F5EBDC",
                       fontSize: "0.75rem",
                       display: "flex",
                       alignItems: "center",
@@ -955,8 +937,8 @@ function App() {
                     3
                   </span>
                   <span>
-                    Redeem your points for free items. Show your QR reward code
-                    at the counter and enjoy.
+                    Utilise tes Couronnes pour des cadeaux. Génère un QR code de
+                    récompense et montre-le en caisse.
                   </span>
                 </li>
               </ol>
@@ -965,13 +947,13 @@ function App() {
                 style={{
                   marginTop: "1rem",
                   paddingTop: "0.8rem",
-                  borderTop: "1px dashed rgba(148,163,184,0.6)",
+                  borderTop: "1px dashed rgba(124,74,45,0.5)",
                   fontSize: "0.8rem",
-                  color: "#6b7280",
+                  color: "#7C4A2D",
                 }}
               >
-                You&apos;ll see your balance, upload receipts, and generate QR
-                rewards right after you log in.
+                Tu verras ton solde de Couronnes, tes tickets et tes récompenses
+                dès que tu es connecté.
               </div>
             </div>
           </section>
@@ -980,13 +962,15 @@ function App() {
     );
   }
 
-  // --------- SIGNED-IN DASHBOARD (EXISTING APP) ---------
+  // --------- DASHBOARD (connecté) ---------
   return (
     <div
       style={{
         minHeight: "100vh",
-        background: "#f5f5f5",
-        fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+        background: "#F5EBDC",
+        fontFamily:
+          '"Flame Sans", system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+        color: "#502314",
       }}
     >
       <main
@@ -996,7 +980,7 @@ function App() {
           padding: "2rem 1.5rem 3rem",
         }}
       >
-        {/* HEADER WITH SIGN-IN / SIGN-OUT */}
+        {/* HEADER */}
         <header
           style={{
             display: "flex",
@@ -1007,10 +991,11 @@ function App() {
         >
           <div>
             <h1 style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>
-              BK Loyalty – Customer Portal
+              BK Fidélité – Espace client
             </h1>
-            <p style={{ color: "#555" }}>
-              Upload your Burger King receipt to earn points and unlock rewards.
+            <p style={{ color: "#7C4A2D" }}>
+              Ajoute ton ticket Burger King Maroc pour gagner des Couronnes et
+              les échanger contre des cadeaux.
             </p>
           </div>
 
@@ -1023,16 +1008,16 @@ function App() {
             }}
           >
             {loadingUser ? (
-              <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>
-                Checking session…
+              <span style={{ fontSize: "0.85rem", color: "#7C4A2D" }}>
+                Vérification de la session…
               </span>
             ) : isSignedIn ? (
-              <span style={{ fontSize: "0.9rem", color: "#4b5563" }}>
-                Signed in as <strong>{userLabel}</strong>
+              <span style={{ fontSize: "0.9rem", color: "#502314" }}>
+                Connecté en tant que <strong>{userLabel}</strong>
               </span>
             ) : (
-              <span style={{ fontSize: "0.9rem", color: "#6b7280" }}>
-                Not signed in
+              <span style={{ fontSize: "0.9rem", color: "#7C4A2D" }}>
+                Non connecté
               </span>
             )}
             <a
@@ -1040,95 +1025,61 @@ function App() {
               style={{
                 padding: "0.35rem 0.8rem",
                 borderRadius: "999px",
-                border: "1px solid #e5e7eb",
+                border: "1px solid #E4C7A1",
                 textDecoration: "none",
                 fontSize: "0.85rem",
-                background: "#ffffff",
+                background: "#F5EBDC",
+                color: "#502314",
               }}
             >
-              {isSignedIn ? "Sign out" : "Log in / Sign up"}
+              {isSignedIn
+                ? "Se déconnecter"
+                : "Se connecter / Créer un compte"}
             </a>
           </div>
         </header>
 
-        {/* Section 1 – API connectivity test */}
+        {/* Section – Couronnes & récompenses */}
         <section
           style={{
-            background: "#fff",
+            background: "#FFF9ED",
             padding: "1.5rem",
             borderRadius: "0.75rem",
             boxShadow: "0 4px 10px rgba(0, 0, 0, 0.04)",
             marginBottom: "1.5rem",
+            border: "1px solid #F0D5AA",
           }}
         >
           <h2 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>
-            Backend status
-          </h2>
-          <p style={{ marginBottom: "0.75rem", color: "#555" }}>
-            Check that the API (Azure Functions) is reachable from this app.
-          </p>
-          <button
-            onClick={callHealthCheck}
-            disabled={isCallingApi}
-            style={{
-              padding: "0.5rem 1rem",
-              borderRadius: "0.5rem",
-              border: "none",
-              cursor: "pointer",
-              fontWeight: 600,
-              background: "#5a2dfc",
-              color: "#fff",
-            }}
-          >
-            {isCallingApi ? "Checking…" : "Call health-check"}
-          </button>
-          {apiMessage && (
-            <p style={{ marginTop: "0.75rem", color: "#111827" }}>
-              {apiMessage}
-            </p>
-          )}
-        </section>
-
-        {/* Section 2 – Points & Rewards */}
-        <section
-          style={{
-            background: "#fff",
-            padding: "1.5rem",
-            borderRadius: "0.75rem",
-            boxShadow: "0 4px 10px rgba(0, 0, 0, 0.04)",
-            marginBottom: "1.5rem",
-          }}
-        >
-          <h2 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>
-            Your points & rewards
+            Mes Couronnes & récompenses
           </h2>
 
-          {/* Balance */}
+          {/* Solde */}
           <div style={{ marginBottom: "1rem" }}>
-            <p style={{ marginBottom: "0.5rem", color: "#555" }}>
-              Current points:
+            <p style={{ marginBottom: "0.5rem", color: "#7C4A2D" }}>
+              Couronnes disponibles :
             </p>
-            <span style={{ fontSize: "1.1rem", color: "#111827" }}>
+            <span style={{ fontSize: "1.2rem", color: "#502314" }}>
               {isLoadingBalance
-                ? "Loading..."
+                ? "Chargement..."
                 : points === null
                 ? isSignedIn
                   ? "—"
-                  : "Please sign in to see your balance."
-                : `${points} pts`}
+                  : "Connecte-toi pour voir ton solde."
+                : `${points} Couronnes`}
             </span>
           </div>
 
-          {/* Program explanation */}
+          {/* Explication programme */}
           <div
             style={{
               marginBottom: "1rem",
               padding: "0.75rem 0.9rem",
               borderRadius: "0.75rem",
-              background: "#f9fafb",
-              border: "1px dashed #e5e7eb",
+              background: "#FDF2D9",
+              border: "1px dashed #F0D5AA",
               fontSize: "0.9rem",
-              color: "#374151",
+              color: "#502314",
             }}
           >
             <p
@@ -1137,58 +1088,74 @@ function App() {
                 fontWeight: 600,
               }}
             >
-              How your BK Loyalty works:
+              Ton programme BK Fidélité Maroc :
             </p>
-            <p style={{ marginBottom: "0.25rem" }}>10 MAD = 1 point</p>
-            <p style={{ marginBottom: "0.15rem" }}>
-              🥤 <strong>10 pts</strong> → free side (up to 15 MAD)
+            <p style={{ marginBottom: "0.25rem" }}>
+              <strong>10 MAD dépensés = 1 Couronne</strong> (calculé sur le
+              montant du ticket).
             </p>
             <p style={{ marginBottom: "0.15rem" }}>
-              🍔 <strong>25 pts</strong> → free sandwich (up to 35 MAD)
+              👑 <strong>40 Couronnes</strong> → Petits Plaisirs
+            </p>
+            <p style={{ marginBottom: "0.15rem" }}>
+              👑 <strong>80 Couronnes</strong> → Snacks & Desserts
+            </p>
+            <p style={{ marginBottom: "0.15rem" }}>
+              👑 <strong>120 Couronnes</strong> → Burgers classiques
+            </p>
+            <p style={{ marginBottom: "0.15rem" }}>
+              👑 <strong>135 Couronnes</strong> → Burgers premium
+            </p>
+            <p style={{ marginBottom: "0.15rem" }}>
+              👑 <strong>150 Couronnes</strong> → Menus classiques
+            </p>
+            <p style={{ marginBottom: "0.15rem" }}>
+              👑 <strong>200 Couronnes</strong> → Menus premium
             </p>
             <p>
-              🍔+🥤 <strong>40 pts</strong> → free menu (up to 60 MAD)
+              👑 <strong>240 Couronnes</strong> → Festin du King
             </p>
           </div>
 
-          {/* Redeem rewards (tiers) */}
+          {/* Paliers utilisables */}
           <div>
-            <p style={{ marginBottom: "0.5rem", color: "#555" }}>
-              Use your points to unlock these rewards:
+            <p style={{ marginBottom: "0.5rem", color: "#7C4A2D" }}>
+              Utilise tes Couronnes pour ces récompenses* :
             </p>
 
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
                 gap: "0.75rem",
               }}
             >
-              {/* FREE SIDE */}
+              {/* 40 */}
               <div
                 style={{
-                  background: "#f9fafb",
+                  background: "#FFF4D8",
                   borderRadius: "0.75rem",
                   padding: "0.75rem 0.9rem",
-                  border: "1px solid #e5e7eb",
+                  border: "1px solid #F0D5AA",
                 }}
               >
                 <div
                   style={{
-                    fontWeight: 600,
+                    fontWeight: 700,
                     marginBottom: "0.25rem",
                   }}
                 >
-                  🥤 Free side
+                  👑 40 Couronnes – Petits Plaisirs
                 </div>
                 <p
                   style={{
                     fontSize: "0.85rem",
-                    color: "#4b5563",
+                    color: "#7C4A2D",
                     marginBottom: "0.5rem",
                   }}
                 >
-                  Any side up to 15 MAD.
+                  Petits plaisirs salés ou sucrés (voir la sélection en
+                  restaurant).
                 </p>
                 <p
                   style={{
@@ -1196,171 +1163,25 @@ function App() {
                     marginBottom: "0.5rem",
                   }}
                 >
-                  Cost: <strong>10 pts</strong>
+                  Coût : <strong>40 Couronnes</strong>
                   {points !== null && (
                     <span
                       style={{
                         marginLeft: "0.25rem",
-                        color: points >= 10 ? "#16a34a" : "#9ca3af",
-                      }}
-                    >
-                      (
-                      {points >= 10
-                        ? "Available"
-                        : `Need ${10 - points} more`}
-                      )
-                    </span>
-                  )}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => redeemRewardTier("FREE_SIDE")}
-                  disabled={isRedeeming || points === null || points < 10}
-                  style={{
-                    padding: "0.5rem 1rem",
-                    borderRadius: "0.5rem",
-                    border: "none",
-                    cursor:
-                      isRedeeming || points === null || points < 10
-                        ? "not-allowed"
-                        : "pointer",
-                    fontWeight: 600,
-                    background:
-                      isRedeeming || points === null || points < 10
-                        ? "#9ca3af"
-                        : "#f97316",
-                    color: "#fff",
-                    fontSize: "0.9rem",
-                  }}
-                >
-                  {isRedeeming ? "Creating…" : "Redeem"}
-                </button>
-              </div>
-
-              {/* FREE SANDWICH */}
-              <div
-                style={{
-                  background: "#f9fafb",
-                  borderRadius: "0.75rem",
-                  padding: "0.75rem 0.9rem",
-                  border: "1px solid #e5e7eb",
-                }}
-              >
-                <div
-                  style={{
-                    fontWeight: 600,
-                    marginBottom: "0.25rem",
-                  }}
-                >
-                  🍔 Free sandwich
-                </div>
-                <p
-                  style={{
-                    fontSize: "0.85rem",
-                    color: "#4b5563",
-                    marginBottom: "0.5rem",
-                  }}
-                >
-                  Any sandwich up to 35 MAD.
-                </p>
-                <p
-                  style={{
-                    fontSize: "0.85rem",
-                    marginBottom: "0.5rem",
-                  }}
-                >
-                  Cost: <strong>25 pts</strong>
-                  {points !== null && (
-                    <span
-                      style={{
-                        marginLeft: "0.25rem",
-                        color: points >= 25 ? "#16a34a" : "#9ca3af",
-                      }}
-                    >
-                      (
-                      {points >= 25
-                        ? "Available"
-                        : `Need ${25 - points} more`}
-                      )
-                    </span>
-                  )}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => redeemRewardTier("FREE_SANDWICH")}
-                  disabled={isRedeeming || points === null || points < 25}
-                  style={{
-                    padding: "0.5rem 1rem",
-                    borderRadius: "0.5rem",
-                    border: "none",
-                    cursor:
-                      isRedeeming || points === null || points < 25
-                        ? "not-allowed"
-                        : "pointer",
-                    fontWeight: 600,
-                    background:
-                      isRedeeming || points === null || points < 25
-                        ? "#9ca3af"
-                        : "#f97316",
-                    color: "#fff",
-                    fontSize: "0.9rem",
-                  }}
-                >
-                  {isRedeeming ? "Creating…" : "Redeem"}
-                </button>
-              </div>
-
-              {/* FREE MENU */}
-              <div
-                style={{
-                  background: "#f9fafb",
-                  borderRadius: "0.75rem",
-                  padding: "0.75rem 0.9rem",
-                  border: "1px solid #e5e7eb",
-                }}
-              >
-                <div
-                  style={{
-                    fontWeight: 600,
-                    marginBottom: "0.25rem",
-                  }}
-                >
-                  🍔+🥤 Free menu
-                </div>
-                <p
-                  style={{
-                    fontSize: "0.85rem",
-                    color: "#4b5563",
-                    marginBottom: "0.5rem",
-                  }}
-                >
-                  Any menu up to 60 MAD.
-                </p>
-                <p
-                  style={{
-                    fontSize: "0.85rem",
-                    marginBottom: "0.5rem",
-                  }}
-                >
-                  Cost: <strong>40 pts</strong>
-                  {points !== null && (
-                    <span
-                      style={{
-                        marginLeft: "0.25rem",
-                        color: points >= 40 ? "#16a34a" : "#9ca3af",
+                        color: points >= 40 ? "#15803D" : "#9CA3AF",
                       }}
                     >
                       (
                       {points >= 40
-                        ? "Available"
-                        : `Need ${40 - points} more`}
+                        ? "Disponible"
+                        : `Encore ${40 - points} Couronnes`}
                       )
                     </span>
                   )}
                 </p>
                 <button
                   type="button"
-                  onClick={() => redeemRewardTier("FREE_MENU")}
+                  onClick={() => redeemRewardTier("CROWN_40")}
                   disabled={isRedeeming || points === null || points < 40}
                   style={{
                     padding: "0.5rem 1rem",
@@ -1373,25 +1194,474 @@ function App() {
                     fontWeight: 600,
                     background:
                       isRedeeming || points === null || points < 40
-                        ? "#9ca3af"
-                        : "#f97316",
-                    color: "#fff",
+                        ? "#9CA3AF"
+                        : "#D62300",
+                    color: "#F5EBDC",
                     fontSize: "0.9rem",
                   }}
                 >
-                  {isRedeeming ? "Creating…" : "Redeem"}
+                  {isRedeeming ? "Création…" : "Utiliser 40 Couronnes"}
+                </button>
+              </div>
+
+              {/* 80 */}
+              <div
+                style={{
+                  background: "#FFF4D8",
+                  borderRadius: "0.75rem",
+                  padding: "0.75rem 0.9rem",
+                  border: "1px solid #F0D5AA",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 700,
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  👑 80 Couronnes – Snacks & Desserts
+                </div>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#7C4A2D",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Snacks salés et desserts gourmands au choix.
+                </p>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Coût : <strong>80 Couronnes</strong>
+                  {points !== null && (
+                    <span
+                      style={{
+                        marginLeft: "0.25rem",
+                        color: points >= 80 ? "#15803D" : "#9CA3AF",
+                      }}
+                    >
+                      (
+                      {points >= 80
+                        ? "Disponible"
+                        : `Encore ${80 - points} Couronnes`}
+                      )
+                    </span>
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => redeemRewardTier("CROWN_80")}
+                  disabled={isRedeeming || points === null || points < 80}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    borderRadius: "0.5rem",
+                    border: "none",
+                    cursor:
+                      isRedeeming || points === null || points < 80
+                        ? "not-allowed"
+                        : "pointer",
+                    fontWeight: 600,
+                    background:
+                      isRedeeming || points === null || points < 80
+                        ? "#9CA3AF"
+                        : "#D62300",
+                    color: "#F5EBDC",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {isRedeeming ? "Création…" : "Utiliser 80 Couronnes"}
+                </button>
+              </div>
+
+              {/* 120 */}
+              <div
+                style={{
+                  background: "#FFF4D8",
+                  borderRadius: "0.75rem",
+                  padding: "0.75rem 0.9rem",
+                  border: "1px solid #F0D5AA",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 700,
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  👑 120 Couronnes – Burgers classiques
+                </div>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#7C4A2D",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Choix parmi les burgers classiques Burger King.
+                </p>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Coût : <strong>120 Couronnes</strong>
+                  {points !== null && (
+                    <span
+                      style={{
+                        marginLeft: "0.25rem",
+                        color: points >= 120 ? "#15803D" : "#9CA3AF",
+                      }}
+                    >
+                      (
+                      {points >= 120
+                        ? "Disponible"
+                        : `Encore ${120 - points} Couronnes`}
+                      )
+                    </span>
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => redeemRewardTier("CROWN_120")}
+                  disabled={isRedeeming || points === null || points < 120}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    borderRadius: "0.5rem",
+                    border: "none",
+                    cursor:
+                      isRedeeming || points === null || points < 120
+                        ? "not-allowed"
+                        : "pointer",
+                    fontWeight: 600,
+                    background:
+                      isRedeeming || points === null || points < 120
+                        ? "#9CA3AF"
+                        : "#D62300",
+                    color: "#F5EBDC",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {isRedeeming ? "Création…" : "Utiliser 120 Couronnes"}
+                </button>
+              </div>
+
+              {/* 135 */}
+              <div
+                style={{
+                  background: "#FFF4D8",
+                  borderRadius: "0.75rem",
+                  padding: "0.75rem 0.9rem",
+                  border: "1px solid #F0D5AA",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 700,
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  👑 135 Couronnes – Burgers premium
+                </div>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#7C4A2D",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Accède aux burgers premium de la carte.
+                </p>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Coût : <strong>135 Couronnes</strong>
+                  {points !== null && (
+                    <span
+                      style={{
+                        marginLeft: "0.25rem",
+                        color: points >= 135 ? "#15803D" : "#9CA3AF",
+                      }}
+                    >
+                      (
+                      {points >= 135
+                        ? "Disponible"
+                        : `Encore ${135 - points} Couronnes`}
+                      )
+                    </span>
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => redeemRewardTier("CROWN_135")}
+                  disabled={isRedeeming || points === null || points < 135}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    borderRadius: "0.5rem",
+                    border: "none",
+                    cursor:
+                      isRedeeming || points === null || points < 135
+                        ? "not-allowed"
+                        : "pointer",
+                    fontWeight: 600,
+                    background:
+                      isRedeeming || points === null || points < 135
+                        ? "#9CA3AF"
+                        : "#D62300",
+                    color: "#F5EBDC",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {isRedeeming ? "Création…" : "Utiliser 135 Couronnes"}
+                </button>
+              </div>
+
+              {/* 150 */}
+              <div
+                style={{
+                  background: "#FFF4D8",
+                  borderRadius: "0.75rem",
+                  padding: "0.75rem 0.9rem",
+                  border: "1px solid #F0D5AA",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 700,
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  👑 150 Couronnes – Menus classiques
+                </div>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#7C4A2D",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Menu classique complet (burger + boisson + accompagnement).
+                </p>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Coût : <strong>150 Couronnes</strong>
+                  {points !== null && (
+                    <span
+                      style={{
+                        marginLeft: "0.25rem",
+                        color: points >= 150 ? "#15803D" : "#9CA3AF",
+                      }}
+                    >
+                      (
+                      {points >= 150
+                        ? "Disponible"
+                        : `Encore ${150 - points} Couronnes`}
+                      )
+                    </span>
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => redeemRewardTier("CROWN_150")}
+                  disabled={isRedeeming || points === null || points < 150}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    borderRadius: "0.5rem",
+                    border: "none",
+                    cursor:
+                      isRedeeming || points === null || points < 150
+                        ? "not-allowed"
+                        : "pointer",
+                    fontWeight: 600,
+                    background:
+                      isRedeeming || points === null || points < 150
+                        ? "#9CA3AF"
+                        : "#D62300",
+                    color: "#F5EBDC",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {isRedeeming ? "Création…" : "Utiliser 150 Couronnes"}
+                </button>
+              </div>
+
+              {/* 200 */}
+              <div
+                style={{
+                  background: "#FFF4D8",
+                  borderRadius: "0.75rem",
+                  padding: "0.75rem 0.9rem",
+                  border: "1px solid #F0D5AA",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 700,
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  👑 200 Couronnes – Menus premium
+                </div>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#7C4A2D",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Menus premium avec plus de choix généreux.
+                </p>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Coût : <strong>200 Couronnes</strong>
+                  {points !== null && (
+                    <span
+                      style={{
+                        marginLeft: "0.25rem",
+                        color: points >= 200 ? "#15803D" : "#9CA3AF",
+                      }}
+                    >
+                      (
+                      {points >= 200
+                        ? "Disponible"
+                        : `Encore ${200 - points} Couronnes`}
+                      )
+                    </span>
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => redeemRewardTier("CROWN_200")}
+                  disabled={isRedeeming || points === null || points < 200}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    borderRadius: "0.5rem",
+                    border: "none",
+                    cursor:
+                      isRedeeming || points === null || points < 200
+                        ? "not-allowed"
+                        : "pointer",
+                    fontWeight: 600,
+                    background:
+                      isRedeeming || points === null || points < 200
+                        ? "#9CA3AF"
+                        : "#D62300",
+                    color: "#F5EBDC",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {isRedeeming ? "Création…" : "Utiliser 200 Couronnes"}
+                </button>
+              </div>
+
+              {/* 240 */}
+              <div
+                style={{
+                  background: "#FFF4D8",
+                  borderRadius: "0.75rem",
+                  padding: "0.75rem 0.9rem",
+                  border: "1px solid #F0D5AA",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 700,
+                    marginBottom: "0.25rem",
+                  }}
+                >
+                  👑 240 Couronnes – Festin du King
+                </div>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "#7C4A2D",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Le niveau le plus généreux pour un vrai Festin du King.
+                </p>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  Coût : <strong>240 Couronnes</strong>
+                  {points !== null && (
+                    <span
+                      style={{
+                        marginLeft: "0.25rem",
+                        color: points >= 240 ? "#15803D" : "#9CA3AF",
+                      }}
+                    >
+                      (
+                      {points >= 240
+                        ? "Disponible"
+                        : `Encore ${240 - points} Couronnes`}
+                      )
+                    </span>
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => redeemRewardTier("CROWN_240")}
+                  disabled={isRedeeming || points === null || points < 240}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    borderRadius: "0.5rem",
+                    border: "none",
+                    cursor:
+                      isRedeeming || points === null || points < 240
+                        ? "not-allowed"
+                        : "pointer",
+                    fontWeight: 600,
+                    background:
+                      isRedeeming || points === null || points < 240
+                        ? "#9CA3AF"
+                        : "#D62300",
+                    color: "#F5EBDC",
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {isRedeeming ? "Création…" : "Utiliser 240 Couronnes"}
                 </button>
               </div>
             </div>
 
             {redeemError && (
-              <p style={{ marginTop: "0.5rem", color: "#b91c1c" }}>
+              <p style={{ marginTop: "0.5rem", color: "#B91C1C" }}>
                 {redeemError}
               </p>
             )}
+
+            <p
+              style={{
+                marginTop: "0.75rem",
+                fontSize: "0.8rem",
+                color: "#7C4A2D",
+              }}
+            >
+              *Les produits exacts disponibles à chaque palier peuvent varier
+              selon le restaurant Burger King Maroc.
+            </p>
           </div>
 
-          {/* Last created reward QR */}
+          {/* Dernière récompense créée */}
           {lastReward && (
             <div
               style={{
@@ -1408,34 +1678,35 @@ function App() {
                     fontWeight: 600,
                   }}
                 >
-                  Your latest reward QR:
+                  Mon dernier QR de récompense :
                 </p>
                 <QRCodeCanvas value={lastReward.qrPayload} size={160} />
               </div>
-              <div style={{ fontSize: "0.9rem", color: "#374151" }}>
+              <div style={{ fontSize: "0.9rem", color: "#502314" }}>
                 <p>
-                  Reward: <strong>{lastReward.rewardName}</strong>
+                  Récompense : <strong>{lastReward.rewardName}</strong>
                 </p>
                 <p>
-                  Cost: <strong>{lastReward.pointsCost} pts</strong>
+                  Coût :{" "}
+                  <strong>{lastReward.pointsCost} Couronnes</strong>
                 </p>
                 <p>
-                  Code: <strong>{lastReward.rewardId}</strong>
+                  Code : <strong>{lastReward.rewardId}</strong>
                 </p>
                 <p style={{ marginTop: "0.5rem" }}>
-                  Show this QR (or code) to BK staff. Their app will scan / type
-                  it and validate the reward.
+                  Présente ce QR (ou ce code) à l'équipe Burger King. Ils le
+                  scanneront / saisiront pour valider la récompense.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Rewards history (collapsible) */}
+          {/* Historique des récompenses (repliable) */}
           <div
             style={{
               marginTop: "1.5rem",
               paddingTop: "1rem",
-              borderTop: "1px dashed #e5e7eb",
+              borderTop: "1px dashed #F0D5AA",
             }}
           >
             <div
@@ -1454,16 +1725,16 @@ function App() {
                     marginBottom: "0.25rem",
                   }}
                 >
-                  Your rewards history
+                  Historique de mes récompenses
                 </h3>
                 <p
                   style={{
                     fontSize: "0.85rem",
-                    color: "#6b7280",
+                    color: "#7C4A2D",
                   }}
                 >
-                  See all the rewards you&apos;ve created and when they were
-                  used.
+                  Retrouve toutes les récompenses générées et si elles ont été
+                  utilisées ou non.
                 </p>
               </div>
               <button
@@ -1472,13 +1743,13 @@ function App() {
                 style={{
                   padding: "0.4rem 0.9rem",
                   borderRadius: "999px",
-                  border: "1px solid #e5e7eb",
-                  background: "#fff",
+                  border: "1px solid #E4C7A1",
+                  background: "#F5EBDC",
                   fontSize: "0.8rem",
                   cursor: "pointer",
                 }}
               >
-                {isHistoryOpen ? "Hide history" : "Click to view history"}
+                {isHistoryOpen ? "Masquer l'historique" : "Afficher l'historique"}
               </button>
             </div>
 
@@ -1499,18 +1770,18 @@ function App() {
                     style={{
                       padding: "0.35rem 0.8rem",
                       borderRadius: "999px",
-                      border: "1px solid #e5e7eb",
-                      background: "#fff",
+                      border: "1px solid #E4C7A1",
+                      background: "#F5EBDC",
                       fontSize: "0.8rem",
                       cursor: isLoadingRewards ? "wait" : "pointer",
                     }}
                   >
-                    {isLoadingRewards ? "Refreshing…" : "Refresh history"}
+                    {isLoadingRewards ? "Actualisation…" : "Rafraîchir l'historique"}
                   </button>
                 </div>
 
                 {rewardsError && (
-                  <p style={{ color: "#b91c1c", fontSize: "0.85rem" }}>
+                  <p style={{ color: "#B91C1C", fontSize: "0.85rem" }}>
                     {rewardsError}
                   </p>
                 )}
@@ -1521,11 +1792,12 @@ function App() {
                     <p
                       style={{
                         fontSize: "0.85rem",
-                        color: "#6b7280",
+                        color: "#7C4A2D",
                       }}
                     >
-                      You don&apos;t have any rewards yet. Scan receipts to earn
-                      points and redeem them above.
+                      Tu n'as pas encore de récompense. Scanne des tickets pour
+                      gagner des Couronnes puis utilise-les avec les paliers
+                      ci-dessus.
                     </p>
                   )}
 
@@ -1555,8 +1827,8 @@ function App() {
                             alignItems: "flex-start",
                             padding: "0.75rem 0.9rem",
                             borderRadius: "0.75rem",
-                            background: "#f9fafb",
-                            border: "1px solid #e5e7eb",
+                            background: "#FFF4D8",
+                            border: "1px solid #F0D5AA",
                             flexWrap: "wrap",
                           }}
                         >
@@ -1566,7 +1838,7 @@ function App() {
                           <div
                             style={{
                               fontSize: "0.85rem",
-                              color: "#374151",
+                              color: "#502314",
                               flex: 1,
                               minWidth: 0,
                             }}
@@ -1576,7 +1848,7 @@ function App() {
                               {reward.pointsCost !== null && (
                                 <>
                                   {" "}
-                                  – {reward.pointsCost} pts
+                                  – {reward.pointsCost} Couronnes
                                 </>
                               )}
                             </p>
@@ -1584,24 +1856,24 @@ function App() {
                               <p
                                 style={{
                                   marginTop: "0.15rem",
-                                  color: "#6b7280",
+                                  color: "#7C4A2D",
                                   fontSize: "0.8rem",
                                 }}
                               >
-                                Tier: {reward.tier}
+                                Palier : {reward.tier}
                               </p>
                             )}
                             <p style={{ marginTop: "0.25rem" }}>
-                              Created:{" "}
-                              {createdLabel ?? "Creation date unknown"}
+                              Créée le :{" "}
+                              {createdLabel ?? "Date de création inconnue"}
                             </p>
                             <p style={{ marginTop: "0.25rem" }}>
-                              Status:{" "}
+                              Statut :{" "}
                               {reward.redeemed
                                 ? redeemedLabel
-                                  ? `Used the ${redeemedLabel}`
-                                  : "Used"
-                                : "Not used yet"}
+                                  ? `Utilisée le ${redeemedLabel}`
+                                  : "Utilisée"
+                                : "Pas encore utilisée"}
                             </p>
                           </div>
                         </div>
@@ -1614,25 +1886,26 @@ function App() {
           </div>
         </section>
 
-        {/* Section 3 – Receipt upload */}
+        {/* Section – Upload ticket */}
         <section
           style={{
-            background: "#fff",
+            background: "#FFF9ED",
             padding: "1.5rem",
             borderRadius: "0.75rem",
             boxShadow: "0 4px 10px rgba(0, 0, 0, 0.04)",
+            border: "1px solid #F0D5AA",
           }}
         >
           <h2 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>
-            Upload your receipt
+            Ajouter un ticket Burger King
           </h2>
-          <p style={{ marginBottom: "0.75rem", color: "#555" }}>
-            This sends the image to the backend, stores it in Blob Storage,
-            saves a receipt document in Cosmos DB, and uses Document Intelligence
-            to detect the total amount and the date.
+          <p style={{ marginBottom: "0.75rem", color: "#7C4A2D" }}>
+            Prends en photo ton ticket Burger King Maroc. L'image est envoyée au
+            backend pour vérifier qu'il s'agit bien d'un ticket Burger King,
+            lire le montant et calculer tes Couronnes.
           </p>
 
-          {/* Camera + gallery buttons */}
+          {/* Boutons caméra + galerie */}
           <div
             style={{
               display: "flex",
@@ -1648,12 +1921,12 @@ function App() {
               style={{
                 padding: "0.5rem 1rem",
                 borderRadius: "0.5rem",
-                border: "1px dashed #9ca3af",
-                background: "#f9fafb",
+                border: "1px dashed #E4C7A1",
+                background: "#F5EBDC",
                 cursor: "pointer",
               }}
             >
-              Take photo with camera
+              Prendre une photo avec la caméra
             </button>
 
             <button
@@ -1662,15 +1935,15 @@ function App() {
               style={{
                 padding: "0.5rem 1rem",
                 borderRadius: "0.5rem",
-                border: "1px dashed #9ca3af",
-                background: "#f9fafb",
+                border: "1px dashed #E4C7A1",
+                background: "#F5EBDC",
                 cursor: "pointer",
               }}
             >
-              Choose from gallery
+              Choisir une photo dans la galerie
             </button>
 
-            {/* hidden input for gallery */}
+            {/* input caché */}
             <input
               ref={galleryInputRef}
               type="file"
@@ -1686,23 +1959,22 @@ function App() {
               marginBottom: "0.75rem",
               fontSize: "0.85rem",
               fontStyle: "italic",
-              color: "#6b7280",
+              color: "#7C4A2D",
             }}
           >
-            Make sure the words &quot;Burger King&quot; or &quot;BK&quot;, the
-            total amount and the date are clearly visible on the picture of the
-            receipt.
+            Assure-toi que les mots &quot;Burger King&quot; ou &quot;BK&quot;,
+            le montant total et la date sont bien visibles sur la photo.
           </p>
 
-          {/* Camera overlay */}
+          {/* Vue caméra */}
           {isCameraOpen && (
             <div
               style={{
                 marginBottom: "0.75rem",
                 padding: "0.75rem",
                 borderRadius: "0.5rem",
-                background: "#000",
-                color: "#e5e7eb",
+                background: "#111827",
+                color: "#E5E7EB",
               }}
             >
               <p
@@ -1712,7 +1984,7 @@ function App() {
                   fontWeight: 600,
                 }}
               >
-                Camera view
+                Vue caméra
               </p>
               <div
                 style={{
@@ -1721,7 +1993,7 @@ function App() {
                   maxHeight: "60vh",
                   overflow: "hidden",
                   borderRadius: "0.75rem",
-                  background: "#111827",
+                  background: "#020617",
                 }}
               >
                 <video
@@ -1740,7 +2012,7 @@ function App() {
                 <p
                   style={{
                     marginTop: "0.5rem",
-                    color: "#fecaca",
+                    color: "#FECACA",
                     fontSize: "0.85rem",
                   }}
                 >
@@ -1762,13 +2034,13 @@ function App() {
                     padding: "0.5rem 1rem",
                     borderRadius: "999px",
                     border: "none",
-                    background: "#22c55e",
-                    color: "#022c22",
+                    background: "#22C55E",
+                    color: "#022C22",
                     cursor: "pointer",
                     fontWeight: 600,
                   }}
                 >
-                  Capture photo
+                  Prendre la photo
                 </button>
                 <button
                   type="button"
@@ -1776,27 +2048,27 @@ function App() {
                   style={{
                     padding: "0.5rem 1rem",
                     borderRadius: "999px",
-                    border: "1px solid #6b7280",
+                    border: "1px solid #6B7280",
                     background: "#020617",
-                    color: "#e5e7eb",
+                    color: "#E5E7EB",
                     cursor: "pointer",
                     fontWeight: 500,
                   }}
                 >
-                  Close camera
+                  Fermer la caméra
                 </button>
               </div>
             </div>
           )}
 
-          {/* Preview */}
+          {/* Aperçu */}
           {previewUrl && (
             <div
               style={{
                 marginBottom: "0.75rem",
                 padding: "0.75rem",
                 borderRadius: "0.5rem",
-                background: "#f9fafb",
+                background: "#FDF2D9",
                 display: "flex",
                 gap: "0.75rem",
                 alignItems: "flex-start",
@@ -1811,27 +2083,27 @@ function App() {
                     fontWeight: 600,
                   }}
                 >
-                  Preview:
+                  Aperçu :
                 </p>
                 <img
                   src={previewUrl}
-                  alt="Selected receipt"
+                  alt="Ticket sélectionné"
                   style={{
                     maxWidth: "200px",
                     maxHeight: "200px",
                     objectFit: "contain",
                     borderRadius: "0.5rem",
-                    border: "1px solid #e5e7eb",
+                    border: "1px solid #E5E7EB",
                   }}
                 />
               </div>
-              <div style={{ fontSize: "0.85rem", color: "#4b5563", flex: 1 }}>
+              <div style={{ fontSize: "0.85rem", color: "#7C4A2D", flex: 1 }}>
                 <p>
-                  <strong>File:</strong> {selectedFileName}
+                  <strong>Fichier :</strong> {selectedFileName}
                 </p>
                 <p style={{ marginTop: "0.25rem" }}>
-                  If the photo is not clear, you can take another one with the
-                  camera or choose a different picture from your gallery.
+                  Si la photo n'est pas claire, tu peux en refaire une avec la
+                  caméra ou choisir une autre image dans ta galerie.
                 </p>
                 <div
                   style={{
@@ -1847,13 +2119,13 @@ function App() {
                     style={{
                       padding: "0.35rem 0.8rem",
                       borderRadius: "999px",
-                      border: "1px solid #d1d5db",
-                      background: "#fff",
+                      border: "1px solid #D1D5DB",
+                      background: "#F5EBDC",
                       cursor: "pointer",
                       fontSize: "0.8rem",
                     }}
                   >
-                    Retake with camera
+                    Refaire une photo
                   </button>
                   <button
                     type="button"
@@ -1861,20 +2133,20 @@ function App() {
                     style={{
                       padding: "0.35rem 0.8rem",
                       borderRadius: "999px",
-                      border: "1px solid #d1d5db",
-                      background: "#fff",
+                      border: "1px solid #D1D5DB",
+                      background: "#F5EBDC",
                       cursor: "pointer",
                       fontSize: "0.8rem",
                     }}
                   >
-                    Choose another photo
+                    Choisir une autre photo
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Upload button + messages */}
+          {/* Bouton upload + messages */}
           <button
             onClick={uploadRealReceipt}
             disabled={isUploadingReceipt || !selectedFile}
@@ -1884,15 +2156,15 @@ function App() {
               border: "none",
               cursor: selectedFile ? "pointer" : "not-allowed",
               fontWeight: 600,
-              background: selectedFile ? "#16a34a" : "#9ca3af",
-              color: "#fff",
+              background: selectedFile ? "#16A34A" : "#9CA3AF",
+              color: "#F5EBDC",
             }}
           >
-            {isUploadingReceipt ? "Uploading…" : "Upload this receipt"}
+            {isUploadingReceipt ? "Envoi en cours…" : "Envoyer ce ticket"}
           </button>
 
           {lastReceiptError && (
-            <p style={{ marginTop: "0.5rem", color: "#b91c1c" }}>
+            <p style={{ marginTop: "0.5rem", color: "#B91C1C" }}>
               {lastReceiptError}
             </p>
           )}

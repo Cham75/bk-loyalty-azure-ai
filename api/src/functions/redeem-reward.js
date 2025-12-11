@@ -2,18 +2,35 @@ const { app } = require("@azure/functions");
 const { createReward } = require("../data/db");
 const { getUserId } = require("../auth/client-principal");
 
+// Programme BK Maroc – paliers en Couronnes
 const REWARD_TIERS = {
-  FREE_SIDE: {
-    name: "🥤 Free side (≤ 15 MAD)",
-    pointsCost: 10,
-  },
-  FREE_SANDWICH: {
-    name: "🍔 Free sandwich (≤ 35 MAD)",
-    pointsCost: 25,
-  },
-  FREE_MENU: {
-    name: "🍔+🥤 Free menu (≤ 60 MAD)",
+  CROWN_40: {
+    name: "👑 40 Couronnes – Petits Plaisirs",
     pointsCost: 40,
+  },
+  CROWN_80: {
+    name: "👑 80 Couronnes – Snacks & Desserts",
+    pointsCost: 80,
+  },
+  CROWN_120: {
+    name: "👑 120 Couronnes – Burgers classiques",
+    pointsCost: 120,
+  },
+  CROWN_135: {
+    name: "👑 135 Couronnes – Burgers premium",
+    pointsCost: 135,
+  },
+  CROWN_150: {
+    name: "👑 150 Couronnes – Menus classiques",
+    pointsCost: 150,
+  },
+  CROWN_200: {
+    name: "👑 200 Couronnes – Menus premium",
+    pointsCost: 200,
+  },
+  CROWN_240: {
+    name: "👑 240 Couronnes – Festin du King",
+    pointsCost: 240,
   },
 };
 
@@ -42,14 +59,15 @@ app.http("redeem-reward", {
       let pointsCost;
       let tier = null;
 
+      // Nouveau mode : on passe un "tier" comme CROWN_40, CROWN_80, etc.
       if (body && typeof body.tier === "string" && REWARD_TIERS[body.tier]) {
         const config = REWARD_TIERS[body.tier];
         rewardName = config.name;
         pointsCost = config.pointsCost;
         tier = body.tier;
       } else {
-        // Fallback: legacy / custom reward mode
-        rewardName = body.rewardName || "Free Sundae";
+        // Mode legacy / custom (au cas où)
+        rewardName = body.rewardName || "Cadeau BK";
         pointsCost =
           typeof body.pointsCost === "number" ? body.pointsCost : 100;
       }
