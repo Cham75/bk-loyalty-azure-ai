@@ -158,7 +158,7 @@ const TIER_COST: Record<RewardTier, number> = {
   CROWN_240: 240,
 };
 
-// BK blue for main CTA
+// Bleu BK pour les CTA
 const BK_BLUE = "#0066CC";
 
 function App() {
@@ -769,9 +769,10 @@ function App() {
               <h1
                 style={{
                   fontSize: "2.3rem",
-                  lineHeight: 1.1,
+                  lineHeight: 1.25,
                   marginBottom: "1rem",
                   color: "#502314",
+                  fontWeight: 400, // Flame Regular pour le titre
                 }}
               >
                 Scanne tes tickets Burger King.
@@ -783,6 +784,7 @@ function App() {
                   fontSize: "1rem",
                   color: "#7C4A2D",
                   marginBottom: "1.5rem",
+                  fontWeight: 400,
                 }}
               >
                 Crée ton compte <strong>BK Fidélité Maroc</strong> en quelques
@@ -819,6 +821,7 @@ function App() {
                 style={{
                   fontSize: "0.85rem",
                   color: "#7C4A2D",
+                  fontWeight: 400,
                 }}
               >
                 Pas de carte à garder, pas de formulaire papier. Juste ton
@@ -1000,11 +1003,12 @@ function App() {
               style={{
                 fontSize: "2rem",
                 marginBottom: "0.5rem",
+                fontWeight: 400, // Regular pour le titre du dashboard
               }}
             >
               BK Fidélité – Espace client
             </h1>
-            <p style={{ color: "#7C4A2D" }}>
+            <p style={{ color: "#7C4A2D", fontWeight: 400 }}>
               Ajoute ton ticket Burger King Maroc pour gagner des Couronnes et
               les échanger contre des cadeaux.
             </p>
@@ -1065,6 +1069,7 @@ function App() {
             style={{
               fontSize: "1.25rem",
               marginBottom: "0.75rem",
+              fontWeight: 400,
             }}
           >
             Mes Couronnes & récompenses
@@ -1738,6 +1743,7 @@ function App() {
                   style={{
                     fontSize: "1rem",
                     marginBottom: "0.25rem",
+                    fontWeight: 400,
                   }}
                 >
                   Historique de mes récompenses
@@ -1915,6 +1921,7 @@ function App() {
             style={{
               fontSize: "1.25rem",
               marginBottom: "0.75rem",
+              fontWeight: 400,
             }}
           >
             Ajouter un ticket Burger King
