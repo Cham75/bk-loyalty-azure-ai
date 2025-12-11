@@ -158,6 +158,9 @@ const TIER_COST: Record<RewardTier, number> = {
   CROWN_240: 240,
 };
 
+// Couleur bleu BK pour les CTA principaux
+const BK_BLUE = "#0066CC";
+
 function App() {
   // utilisateur & solde
   const [userLabel, setUserLabel] = useState<string | null>(null);
@@ -170,7 +173,9 @@ function App() {
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
-  const [lastReceiptResult, setLastReceiptResult] = useState<string | null>(null);
+  const [lastReceiptResult, setLastReceiptResult] = useState<string | null>(
+    null
+  );
   const [lastReceiptError, setLastReceiptError] = useState<string | null>(null);
 
   // récompenses
@@ -767,6 +772,8 @@ function App() {
                   lineHeight: 1.1,
                   marginBottom: "1rem",
                   color: "#502314",
+                  fontFamily:
+                    '"Flame", "Flame Sans", system-ui, -apple-system, sans-serif',
                 }}
               >
                 Scanne tes tickets Burger King.
@@ -798,11 +805,12 @@ function App() {
                   style={{
                     padding: "0.75rem 1.4rem",
                     borderRadius: "999px",
-                    background: "#D62300",
-                    color: "#F5EBDC",
+                    background: BK_BLUE, // CTA bleu
+                    color: "#FFFFFF",
                     textDecoration: "none",
                     fontWeight: 600,
                     fontSize: "0.95rem",
+                    boxShadow: "0 8px 20px rgba(0, 102, 204, 0.35)",
                   }}
                 >
                   Se connecter ou créer mon compte BK Fidélité
@@ -990,7 +998,14 @@ function App() {
           }}
         >
           <div>
-            <h1 style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>
+            <h1
+              style={{
+                fontSize: "2rem",
+                marginBottom: "0.5rem",
+                fontFamily:
+                  '"Flame", "Flame Sans", system-ui, -apple-system, sans-serif',
+              }}
+            >
               BK Fidélité – Espace client
             </h1>
             <p style={{ color: "#7C4A2D" }}>
@@ -1050,7 +1065,14 @@ function App() {
             border: "1px solid #F0D5AA",
           }}
         >
-          <h2 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>
+          <h2
+            style={{
+              fontSize: "1.25rem",
+              marginBottom: "0.75rem",
+              fontFamily:
+                '"Flame", "Flame Sans", system-ui, -apple-system, sans-serif',
+            }}
+          >
             Mes Couronnes & récompenses
           </h2>
 
@@ -1723,6 +1745,8 @@ function App() {
                   style={{
                     fontSize: "1rem",
                     marginBottom: "0.25rem",
+                    fontFamily:
+                      '"Flame", "Flame Sans", system-ui, -apple-system, sans-serif',
                   }}
                 >
                   Historique de mes récompenses
@@ -1896,7 +1920,14 @@ function App() {
             border: "1px solid #F0D5AA",
           }}
         >
-          <h2 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>
+          <h2
+            style={{
+              fontSize: "1.25rem",
+              marginBottom: "0.75rem",
+              fontFamily:
+                '"Flame", "Flame Sans", system-ui, -apple-system, sans-serif',
+            }}
+          >
             Ajouter un ticket Burger King
           </h2>
           <p style={{ marginBottom: "0.75rem", color: "#7C4A2D" }}>
@@ -1921,9 +1952,11 @@ function App() {
               style={{
                 padding: "0.5rem 1rem",
                 borderRadius: "0.5rem",
-                border: "1px dashed #E4C7A1",
+                border: `1px dashed ${BK_BLUE}`,
                 background: "#F5EBDC",
                 cursor: "pointer",
+                color: BK_BLUE,
+                fontWeight: 500,
               }}
             >
               Prendre une photo avec la caméra
@@ -2156,8 +2189,11 @@ function App() {
               border: "none",
               cursor: selectedFile ? "pointer" : "not-allowed",
               fontWeight: 600,
-              background: selectedFile ? "#16A34A" : "#9CA3AF",
-              color: "#F5EBDC",
+              background: selectedFile ? BK_BLUE : "#9CA3AF", // bleu BK quand actif
+              color: "#FFFFFF",
+              boxShadow: selectedFile
+                ? "0 8px 20px rgba(0, 102, 204, 0.35)"
+                : "none",
             }}
           >
             {isUploadingReceipt ? "Envoi en cours…" : "Envoyer ce ticket"}
